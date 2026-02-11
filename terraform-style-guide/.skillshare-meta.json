@@ -1,0 +1,8 @@
+{
+  "source": "github.com/hashicorp/agent-skills/terraform/code-generation/skills/terraform-style-guide",
+  "type": "github-subdir",
+  "installed_at": "2026-02-10T19:01:04.701972+08:00",
+  "repo_url": "https://github.com/hashicorp/agent-skills.git",
+  "subdir": "terraform/code-generation/skills/terraform-style-guide",
+  "version": "9827289"
+}

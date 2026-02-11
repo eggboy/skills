@@ -1,0 +1,8 @@
+{
+  "source": "github.com/hashicorp/agent-skills/terraform/code-generation/skills/azure-verified-modules",
+  "type": "github-subdir",
+  "installed_at": "2026-02-10T19:02:51.773112+08:00",
+  "repo_url": "https://github.com/hashicorp/agent-skills.git",
+  "subdir": "terraform/code-generation/skills/azure-verified-modules",
+  "version": "9827289"
+}
