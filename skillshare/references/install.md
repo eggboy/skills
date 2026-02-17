@@ -12,6 +12,7 @@ Install skills from local path or git repository.
 # GitHub shorthand
 user/repo                     # Browse repo for skills
 user/repo/path/to/skill       # Direct path
+user/repo/skill-name          # Fuzzy resolve (finds nested skill by name)
 
 # GitLab / Bitbucket / other hosts
 gitlab.com/user/repo          # GitLab shorthand
@@ -43,11 +44,16 @@ skillshare install anthropics/skills/skills/pdf -p    # Install to .skillshare/s
 skillshare install github.com/team/repo --track -p    # Track in project
 skillshare install -p                                 # Install all remote skills from config
 
+# Organize into subdirectories
+skillshare install anthropics/skills --into frontend  # → skills/frontend/
+skillshare install user/repo --into tools -p          # → .skillshare/skills/tools/
+
 # Selective install (non-interactive)
 skillshare install anthropics/skills -s pdf,commit    # Specific skills
 skillshare install anthropics/skills --all            # All skills
 skillshare install anthropics/skills -y               # Auto-accept
 skillshare install anthropics/skills -s pdf -p        # Selective + project mode
+skillshare install user/repo --skip-audit             # Skip security scan
 ```
 
 ### Flags
@@ -60,21 +66,25 @@ skillshare install anthropics/skills -s pdf -p        # Selective + project mode
 | `--update, -u` | Update if exists |
 | `--track, -t` | Track for updates (preserves .git) |
 | `--skill, -s <names>` | Select specific skills from multi-skill repo (comma-separated) |
+| `--into <dir>` | Install into subdirectory (e.g., `--into frontend`) |
 | `--all` | Install all discovered skills without prompting |
 | `--yes, -y` | Auto-accept all prompts (CI/CD friendly) |
+| `--skip-audit` | Skip security audit for this install |
 | `--dry-run, -n` | Preview |
+
+**Fuzzy subdirectory resolution:** When a monorepo has nested skill directories, you can specify just the skill name — e.g., `user/repo/vue-best-practices` finds `skills/vue-best-practices/` automatically. Fails with an error if multiple matches exist.
 
 **Tracked repos:** Prefixed with `_`, nested with `__` (e.g., `_team__frontend__ui`).
 
 **Project `install -p` (no source):** Installs all remote skills listed in `.skillshare/config.yaml`. Useful for new team members.
 
-**Security audit:** Install auto-scans skills after download. CRITICAL findings block install — use `--force` to override. HIGH/MEDIUM shown as warnings.
+**Security audit:** Install auto-scans skills after download. CRITICAL findings block install — use `--force` to override, `--skip-audit` to skip entirely. HIGH/MEDIUM shown as warnings.
 
 **After install:** `skillshare sync`
 
 ## check
 
-Check for available updates without applying changes.
+Check for available updates and validate skill metadata.
 
 ```bash
 skillshare check             # Show update status for all repos/skills
@@ -85,6 +95,7 @@ skillshare check -p          # Check project skills
 - **Tracked repos:** Fetches from origin, shows commits behind
 - **Remote skills:** Compares installed version with remote HEAD
 - **Local skills:** Shown as "local source"
+- **Targets validation:** Warns about unknown target names in skill-level `targets` field
 
 ## update
 

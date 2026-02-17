@@ -1,9 +1,11 @@
----
-description: Guidance on checked vs unchecked exceptions in Java
-applyTo: '**/*.java'
----
-
 # Java Exception Handling
+
+## Table of Contents
+
+- [Prefer Unchecked Exceptions](#prefer-unchecked-exceptions)
+- [4 Exception Handling Patterns Senior Developers Use](#4-exception-handling-patterns-senior-developers-use)
+- [The Mental Model That Changes Everything](#the-mental-model-that-changes-everything)
+- [Summary: Complete Exception Handling Strategy](#summary-complete-exception-handling-strategy)
 
 ## Prefer Unchecked Exceptions
 

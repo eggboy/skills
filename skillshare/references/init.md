@@ -4,7 +4,7 @@ Initialize skillshare configuration (global or project).
 
 ## Global Init
 
-**Source:** Always `~/.config/skillshare/skills` (use `--source` only if user explicitly requests).
+**Source:** `~/.config/skillshare/skills` by default. Respects `$XDG_CONFIG_HOME` — if set, uses `$XDG_CONFIG_HOME/skillshare/skills`. Use `--source` only if user explicitly requests a custom path.
 
 ### Flags
 
@@ -21,6 +21,8 @@ Initialize skillshare configuration (global or project).
 | `--discover --select "a,b"` | Non-interactive discovery |
 | `--source <path>` | Custom source path |
 | `--remote <url>` | Set git remote |
+| `--skill` | Install built-in skillshare skill (opt-in) |
+| `--no-skill` | Skip built-in skill installation |
 | `--dry-run` | Preview changes |
 
 ### AI Usage (Non-Interactive)
@@ -30,10 +32,10 @@ Initialize skillshare configuration (global or project).
 ls ~/.claude/skills ~/.cursor/skills 2>/dev/null | head -10
 
 # Step 2a: Fresh start
-skillshare init --no-copy --all-targets --git
+skillshare init --no-copy --all-targets --git --skill
 
 # Step 2b: Import existing skills
-skillshare init --copy-from claude --all-targets --git
+skillshare init --copy-from claude --all-targets --git --skill
 
 # Step 3: Verify
 skillshare status
@@ -56,7 +58,7 @@ Creates `.skillshare/` in current directory with `config.yaml`, `.gitignore`, an
 | Flag | Description |
 |------|-------------|
 | `-p, --project` | Enable project mode |
-| `--targets "claude-code,cursor"` | Specific targets (non-interactive) |
+| `--targets "claude,cursor"` | Specific targets (non-interactive) |
 | `--discover` | Discover new AI tools |
 | `--discover --select "a,b"` | Non-interactive discovery |
 | `--dry-run, -n` | Preview changes |
@@ -67,7 +69,7 @@ Creates `.skillshare/` in current directory with `config.yaml`, `.gitignore`, an
 
 ```bash
 # Initialize with specific targets
-skillshare init -p --targets "claude-code,cursor"
+skillshare init -p --targets "claude,cursor"
 
 # Verify
 skillshare status
