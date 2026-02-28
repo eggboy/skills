@@ -38,6 +38,7 @@ skillshare install anthropics/skills              # Browse official skills
 skillshare install anthropics/skills/skills/pdf   # Direct install
 skillshare install ~/Downloads/my-skill           # Local
 skillshare install github.com/team/repo --track   # Team repo
+skillshare install                                # Install all remote skills from config
 
 # Project
 skillshare install anthropics/skills/skills/pdf -p    # Install to .skillshare/skills/
@@ -69,16 +70,27 @@ skillshare install user/repo --skip-audit             # Skip security scan
 | `--into <dir>` | Install into subdirectory (e.g., `--into frontend`) |
 | `--all` | Install all discovered skills without prompting |
 | `--yes, -y` | Auto-accept all prompts (CI/CD friendly) |
+| `--exclude <name>` | Skip specific skills during multi-skill install (repeatable) |
 | `--skip-audit` | Skip security audit for this install |
+| `--audit-threshold <t>` / `--threshold <t>` / `-T <t>` | Override block threshold for this run (`critical\|high\|medium\|low\|info`; shorthand: `c\|h\|m\|l\|i`, plus `crit`, `med`) |
 | `--dry-run, -n` | Preview |
 
 **Fuzzy subdirectory resolution:** When a monorepo has nested skill directories, you can specify just the skill name — e.g., `user/repo/vue-best-practices` finds `skills/vue-best-practices/` automatically. Fails with an error if multiple matches exist.
 
 **Tracked repos:** Prefixed with `_`, nested with `__` (e.g., `_team__frontend__ui`).
+Tracked custom names must not contain path separators (`/`, `\`) or `..`.
 
-**Project `install -p` (no source):** Installs all remote skills listed in `.skillshare/config.yaml`. Useful for new team members.
+**No-arg install:** `skillshare install` (global) or `skillshare install -p` (project) installs all remote skills listed in `config.yaml`. Useful for new machines, new team members, or reproducing a skill setup from a shared config.
 
-**Security audit:** Install auto-scans skills after download. CRITICAL findings block install — use `--force` to override, `--skip-audit` to skip entirely. HIGH/MEDIUM shown as warnings.
+**`.skillignore`:** Repo authors can add a `.skillignore` file at the repo root to hide skills from discovery. Supports exact match (`my-skill`), trailing wildcard (`prefix-*`), and group match (`feature-radar` excludes all skills under that directory). Applied before any selection prompt.
+
+**`--exclude`:** Skip specific skills during multi-skill install. Filters before the interactive prompt so excluded skills never appear. Example: `skillshare install user/repo --exclude debug --exclude experimental`.
+
+**License display:** If a SKILL.md has a `license` frontmatter field, it's shown in selection prompts (e.g., `my-skill (MIT)`) and in the single-skill confirmation box.
+
+**Security audit:** Install auto-scans skills after download. Blocking follows the active threshold (default `CRITICAL`), while aggregate risk is reported separately for context. Use `--force` to override blocking, `--skip-audit` to skip scanning, or `--audit-threshold` / `--threshold` / `-T` to override threshold per command.
+
+**Private repos (HTTPS):** `install` and `update` auto-detect `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`, or `SKILLSHARE_GIT_TOKEN` for HTTPS clone/pull. No manual git config needed. SSH works as usual.
 
 **After install:** `skillshare sync`
 
@@ -107,9 +119,12 @@ Update installed skills or tracked repositories.
 ```bash
 # Global
 skillshare update my-skill       # Update from stored source
+skillshare update a b c          # Update multiple at once
 skillshare update _team-skills   # Git pull tracked repo
+skillshare update --group front  # Update all in a group
 skillshare update --all          # All tracked repos + skills
 skillshare update --all -n       # Preview updates
+skillshare update --all --diff   # Show file-level change summary
 
 # Project
 skillshare update my-skill -p       # Update project skill
@@ -118,23 +133,49 @@ skillshare update --all -p          # All project remote/tracked skills
 skillshare update _repo --force -p  # Discard local changes
 ```
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all, -a` | Update all tracked repos and skills with metadata |
+| `--group, -G <name>` | Update all updatable skills in a group (repeatable) |
+| `--force, -f` | Discard local changes and force update |
+| `--dry-run, -n` | Preview without making changes |
+| `--skip-audit` | Skip post-update security audit gate |
+| `--diff` | Show file-level change summary after update |
+
 **Safety:** Tracked repos with uncommitted changes are skipped. Use `--force` to override.
+
+**Security:** Post-update audit gate rolls back tracked repos on HIGH/CRITICAL findings. Risk label and score displayed after updates. Use `--skip-audit` to bypass.
 
 **After update:** `skillshare sync`
 
 ## uninstall
 
-Remove a skill from source. Moves to trash (7-day retention) instead of permanent deletion.
+Remove one or more skills from source. Moves to trash (7-day retention) instead of permanent deletion.
 
 ```bash
-# Global
-skillshare uninstall my-skill          # With confirmation → moves to trash
-skillshare uninstall my-skill --force  # Skip confirmation
+# Single skill
+skillshare uninstall my-skill              # With confirmation → moves to trash
+skillshare uninstall my-skill --force      # Skip confirmation
+
+# Multiple skills
+skillshare uninstall a b c --force         # Batch removal
+
+# Group removal (prefix match)
+skillshare uninstall --group frontend      # Remove all skills under frontend/
+skillshare uninstall -G frontend -G backend --force  # Multiple groups
+skillshare uninstall my-skill -G frontend --force    # Mix names and groups
 
 # Project
-skillshare uninstall my-skill -p          # Remove from .skillshare/skills/
-skillshare uninstall my-skill --force -p  # Skip confirmation
+skillshare uninstall my-skill -p
+skillshare uninstall -G frontend -p --force
+
+# Preview
+skillshare uninstall --group frontend --dry-run
 ```
+
+**Group auto-detection:** When uninstalling a directory that contains sub-skills, the confirmation prompt shows `Uninstalling group (N skills)` with a list of contained skills.
 
 **Undo:** `skillshare trash restore <name>` to recover. See [trash.md](trash.md).
 
