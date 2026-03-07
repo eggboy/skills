@@ -1,8 +1,12 @@
 {
-  "source": "github.com/hashicorp/agent-skills/terraform/code-generation/skills/azure-verified-modules",
+  "source": "https://github.com/hashicorp/agent-skills.git/terraform/code-generation/skills/azure-verified-modules",
   "type": "github-subdir",
-  "installed_at": "2026-02-10T19:02:51.773112+08:00",
+  "installed_at": "2026-03-07T19:29:37.604058+08:00",
   "repo_url": "https://github.com/hashicorp/agent-skills.git",
   "subdir": "terraform/code-generation/skills/azure-verified-modules",
-  "version": "9827289"
+  "version": "876a095",
+  "tree_hash": "571ad476a6280c3ef1fc4781d7ee7ae41dfa0917",
+  "file_hashes": {
+    "SKILL.md": "sha256:f17d1e7d909797042d71ae1ccfee04a2f5a3d96f4972db8ca005f1173cd40564"
+  }
 }
