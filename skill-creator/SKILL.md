@@ -8,6 +8,16 @@ license: Proprietary. LICENSE.txt has complete terms
 
 Guide for creating Agent Skills—modular packages of procedural knowledge, workflows, and tools that extend AI agents beyond what any model inherently knows.
 
+## Table of Contents
+
+- [Core Principles](#core-principles)
+- [Skill Creation Process](#skill-creation-process)
+  - [Step 1: Understanding the Skill](#step-1-understanding-the-skill-with-concrete-examples)
+  - [Step 2: Planning Reusable Contents](#step-2-planning-the-reusable-skill-contents)
+  - [Step 3: Initializing the Skill](#step-3-initializing-the-skill)
+  - [Step 4: Edit the Skill](#step-4-edit-the-skill)
+  - [Step 5: Iterate](#step-5-iterate)
+
 ## Core Principles
 
 ### Concise is Key
@@ -179,6 +189,10 @@ Write the YAML frontmatter with required and optional fields:
 - `name`: The skill name (1-64 characters, lowercase alphanumeric and hyphens only, must match parent directory name)
 - `description`: Primary triggering mechanism (1-1024 characters). Include what the skill does AND when to use it—this is the only field read before the body loads.
   - Example: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when working with .docx files for: creating, modifying, tracked changes, comments, or any document tasks"
+
+**Frontmatter formatting rules:**
+- All values **MUST** be plain inline strings. Do NOT use YAML block scalar indicators (`>-`, `>`, `|`, `|-`). These are YAML syntax, not Markdown, and may not be parsed correctly by all skill consumers.
+- For long descriptions, write the full text on a single line after `description:`.
 
 **Optional fields:**
 - `license`: License name or reference to a bundled license file (e.g., "Apache-2.0" or "Proprietary. LICENSE.txt has complete terms")

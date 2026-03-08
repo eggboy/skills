@@ -1,13 +1,19 @@
 ---
 name: terraform-style-guide
-description: Generate Terraform HCL code following HashiCorp's official style conventions and best practices. Use when writing, reviewing, or generating Terraform configurations.
+description: Generate Terraform HCL code following HashiCorp's official style conventions and best practices. Use when writing, reviewing, or generating Terraform configurations, HCL code, infrastructure as code, Terraform modules, or refactoring existing Terraform projects. Not for Pulumi, CloudFormation, Bicep, or other IaC tools.
 ---
 
 # Terraform Style Guide
 
-Generate and maintain Terraform code following HashiCorp's official style conventions and best practices.
+Generate and maintain Terraform code following HashiCorp's official style conventions.
 
 **Reference:** [HashiCorp Terraform Style Guide](https://developer.hashicorp.com/terraform/language/style)
+
+**Supplementary references** (load as needed):
+
+- **Modules**: See [references/modules.md](references/modules.md) for module structure, versioning, `moved` blocks, and reusable module design
+- **Dynamic resources**: See [references/dynamic-resources.md](references/dynamic-resources.md) for decision guide on `for_each` vs `count` vs `dynamic` blocks
+- **Error prevention**: See [references/error-prevention.md](references/error-prevention.md) for anti-patterns, lifecycle rules, state backends, import blocks, and recovery commands
 
 ## Code Generation Strategy
 
@@ -30,91 +36,22 @@ When generating Terraform code:
 | `outputs.tf` | Output value declarations (alphabetical) |
 | `locals.tf` | Local value declarations |
 
-### Example Structure
-
-```hcl
-# terraform.tf
-terraform {
-  required_version = ">= 1.7"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-# variables.tf
-variable "environment" {
-  description = "Target deployment environment"
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be dev, staging, or prod."
-  }
-}
-
-# locals.tf
-locals {
-  common_tags = {
-    Environment = var.environment
-    ManagedBy   = "Terraform"
-  }
-}
-
-# main.tf
-resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_hostnames = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-vpc"
-  })
-}
-
-# outputs.tf
-output "vpc_id" {
-  description = "ID of the created VPC"
-  value       = aws_vpc.main.id
-}
-```
+For modules, add `README.md` and follow the structure in [references/modules.md](references/modules.md).
 
 ## Code Formatting
 
-### Indentation and Alignment
-
-- Use **two spaces** per nesting level (no tabs)
-- Align equals signs for consecutive arguments
-
-```hcl
-resource "aws_instance" "web" {
-  ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = "t2.micro"
-  subnet_id     = "subnet-12345678"
-
-  tags = {
-    Name        = "web-server"
-    Environment = "production"
-  }
-}
-```
-
-### Block Organization
-
-Arguments precede blocks, with meta-arguments first:
+Align equals signs for consecutive arguments. Place meta-arguments first, then arguments, then nested blocks, with `lifecycle` last:
 
 ```hcl
 resource "aws_instance" "example" {
-  # Meta-arguments
+  # Meta-arguments first
   count = 3
 
-  # Arguments
+  # Arguments (aligned =)
   ami           = "ami-0c55b159cbfafe1f0"
   instance_type = "t2.micro"
 
-  # Blocks
+  # Nested blocks
   root_block_device {
     volume_size = 20
   }
@@ -128,11 +65,10 @@ resource "aws_instance" "example" {
 
 ## Naming Conventions
 
-- Use **lowercase with underscores** for all names
-- Use **descriptive nouns** excluding the resource type
-- Be specific and meaningful
-- Resource names must be singular, not plural
-- Default to `main` for resources where a specific descriptive name is redundant or unavailable, provided only one instance exists
+- **Lowercase with underscores** for all names
+- **Descriptive nouns** excluding the resource type
+- **Singular**, not plural
+- Default to `main` when only one instance exists and a specific name adds no clarity
 
 ```hcl
 # Bad
@@ -146,9 +82,9 @@ resource "aws_vpc" "main" {}
 variable "application_name" {}
 ```
 
-## Variables
+## Variables and Outputs
 
-Every variable must include `type` and `description`:
+Every variable requires `type` and `description`. Every output requires `description`. Mark secrets with `sensitive = true`:
 
 ```hcl
 variable "instance_type" {
@@ -162,113 +98,62 @@ variable "instance_type" {
   }
 }
 
-variable "database_password" {
-  description = "Password for the database admin user"
-  type        = string
-  sensitive   = true
-}
-```
-
-## Outputs
-
-Every output must include `description`:
-
-```hcl
 output "instance_id" {
   description = "ID of the EC2 instance"
   value       = aws_instance.web.id
-}
-
-output "database_password" {
-  description = "Database administrator password"
-  value       = aws_db_instance.main.password
-  sensitive   = true
 }
 ```
 
 ## Dynamic Resource Creation
 
-### Prefer for_each over count
+Prefer `for_each` over `count` for multiple named resources. Use `count` only for conditional creation (0 or 1). For the full decision guide and `dynamic` block patterns, see [references/dynamic-resources.md](references/dynamic-resources.md).
 
 ```hcl
-# Bad - count for multiple resources
+# for_each — stable keys, safe to add/remove
 resource "aws_instance" "web" {
-  count = var.instance_count
-  tags  = { Name = "web-${count.index}" }
+  for_each      = toset(["web-1", "web-2", "web-3"])
+  instance_type = "t2.micro"
+  tags          = { Name = each.key }
 }
 
-# Good - for_each with named instances
-variable "instance_names" {
-  type    = set(string)
-  default = ["web-1", "web-2", "web-3"]
-}
-
-resource "aws_instance" "web" {
-  for_each = var.instance_names
-  tags     = { Name = each.key }
-}
-```
-
-### count for Conditional Creation
-
-```hcl
+# count — conditional creation only
 resource "aws_cloudwatch_metric_alarm" "cpu" {
-  count = var.enable_monitoring ? 1 : 0
-
+  count      = var.enable_monitoring ? 1 : 0
   alarm_name = "high-cpu-usage"
   threshold  = 80
 }
 ```
 
-## Security Best Practices
+## Modules
 
-When generating code, apply security hardening:
-
-- Enable encryption at rest by default
-- Configure private networking where applicable
-- Apply principle of least privilege for security groups
-- Enable logging and monitoring
-- Never hardcode credentials or secrets
-- Mark sensitive outputs with `sensitive = true`
-
-### Example: Secure S3 Bucket
+Use modules to encapsulate reusable infrastructure. Pin registry modules with `version`, git modules with `ref`:
 
 ```hcl
-resource "aws_s3_bucket" "data" {
-  bucket = "${var.project}-${var.environment}-data"
-  tags   = local.common_tags
-}
+module "vpc" {
+  source  = "hashicorp/vpc/aws"
+  version = "~> 5.0"
 
-resource "aws_s3_bucket_versioning" "data" {
-  bucket = aws_s3_bucket.data.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
-  bucket = aws_s3_bucket.data.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.s3.arn
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "data" {
-  bucket = aws_s3_bucket.data.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  cidr_block  = var.vpc_cidr
+  environment = var.environment
 }
 ```
 
-## Version Pinning
+For module structure, naming, versioning, `moved` blocks, and input/output design, see [references/modules.md](references/modules.md).
+
+## Security Best Practices
+
+Apply these defaults when generating code:
+
+- Enable encryption at rest (KMS/SSE)
+- Configure private networking where applicable
+- Apply least-privilege security groups and IAM policies
+- Never hardcode credentials — use environment variables or IAM roles
+- Mark sensitive outputs with `sensitive = true`
+- Enable versioning on storage resources
+
+## Version Constraints
+
+Pin both Terraform and provider versions in `terraform.tf`:
 
 ```hcl
 terraform {
@@ -277,17 +162,13 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"  # Allow minor updates
+      version = "~> 5.0"
     }
   }
 }
 ```
 
-**Version constraint operators:**
-- `= 1.0.0` - Exact version
-- `>= 1.0.0` - Greater than or equal
-- `~> 1.0` - Allow rightmost component to increment
-- `>= 1.0, < 2.0` - Version range
+Constraint operators: `= 1.0.0` (exact), `>= 1.0.0` (minimum), `~> 1.0` (allow rightmost increment), `>= 1.0, < 2.0` (range).
 
 ## Provider Configuration
 
@@ -302,51 +183,42 @@ provider "aws" {
     }
   }
 }
-
-# Aliased provider for multi-region
-provider "aws" {
-  alias  = "east"
-  region = "us-east-1"
-}
 ```
 
-## Version Control
+## Error Prevention
 
-**Never commit:**
-- `terraform.tfstate`, `terraform.tfstate.backup`
-- `.terraform/` directory
-- `*.tfplan`
-- `.tfvars` files with sensitive data
+- Always use a remote backend with state locking for team projects
+- Run `terraform plan -out=tfplan` and review before applying saved plans
+- Use `lifecycle { prevent_destroy = true }` on critical stateful resources
+- Prefer implicit dependencies over `depends_on`
+- Never run concurrent applies against the same state file
 
-**Always commit:**
-- All `.tf` configuration files
-- `.terraform.lock.hcl` (dependency lock file)
+For anti-patterns, dependency cycle resolution, state backend configs, `import`/`check` blocks, and recovery commands, see [references/error-prevention.md](references/error-prevention.md).
 
-## Validation Tools
+## Validation
 
-Run before committing:
+Run before every commit:
 
 ```bash
-terraform fmt -recursive
-terraform validate
+terraform fmt -recursive    # Format
+terraform validate          # Syntax + type check
 ```
 
-Additional tools:
-- `tflint` - Linting and best practices
-- `checkov` / `tfsec` - Security scanning
+Additional tools: `tflint` (linting), `checkov`/`tfsec` (security scanning).
 
 ## Code Review Checklist
 
-- [ ] Code formatted with `terraform fmt`
-- [ ] Configuration validated with `terraform validate`
-- [ ] Files organized according to standard structure
-- [ ] All variables have type and description
-- [ ] All outputs have descriptions
-- [ ] Resource names use descriptive nouns with underscores
-- [ ] Version constraints pinned explicitly
-- [ ] Sensitive values marked with `sensitive = true`
+- [ ] Formatted with `terraform fmt`
+- [ ] Validated with `terraform validate`
+- [ ] Files follow standard organization
+- [ ] All variables have `type` and `description`
+- [ ] All outputs have `description`
+- [ ] Resource names: descriptive, lowercase, underscores, singular
+- [ ] Version constraints pinned for Terraform and providers
+- [ ] Sensitive values marked `sensitive = true`
 - [ ] No hardcoded credentials or secrets
-- [ ] Security best practices applied
+- [ ] Security defaults applied (encryption, private networking, least privilege)
+- [ ] Modules pinned to specific versions
 
 ---
 
