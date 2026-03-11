@@ -1,7 +1,6 @@
 ---
 name: skill-creator
 description: Guide for creating effective Agent Skills following the agentskills.io specification. Use when users want to create a new skill or update an existing skill that extends AI agent capabilities with specialized knowledge, workflows, or tool integrations. Applicable to GitHub Copilot, Claude, and other AI assistants.
-license: Proprietary. LICENSE.txt has complete terms
 ---
 
 # Skill Creator
