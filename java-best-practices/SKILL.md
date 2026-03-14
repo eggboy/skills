@@ -1,109 +1,91 @@
 ---
 name: java-best-practices
-description: Expert guidance on modern Java patterns (JDK 8-24) and industry best practices. Use when writing, reviewing, or refactoring Java code to apply modern language features, APIs, and architectural patterns. Covers type inference (var), Records, sealed classes, pattern matching, switch expressions, text blocks, Streams, virtual threads, structured concurrency, modern collections APIs, I/O improvements, security enhancements, DTO design, exception handling strategies (unchecked exceptions, validation-first approach, global handlers), naming conventions, code smells, and build verification. Essential for modernizing legacy Java code, Spring Boot applications, REST APIs, and enterprise Java development.
+description: Expert guidance on modern Java patterns (JDK 8-25) and industry best practices. Use when writing, reviewing, refactoring, or migrating Java code to apply modern language features, APIs, and architectural patterns. Covers type inference (var),Records, sealed classes, pattern matching, switch expressions, text blocks,Streams, virtual threads, structured concurrency, modern collections APIs, I/O improvements, security enhancements, DTO design, exception handling strategies (unchecked exceptions, validation-first approach, global handlers), testing/TDD (JUnit 5, Mockito, AssertJ, TestContainers), Spring Boot integration (DI,@Transactional, @ConfigurationProperties, virtual threads, actuator), JDK migration playbooks (8→11→17→21→25), common Java pitfalls, naming conventions, code smells, and build verification. Essential for modernizing legacy Java code, code reviews, Spring Boot applications, REST APIs, and enterprise Java development. Do NOT use for non-Java languages, Android SDK-specific development, or beginner Java tutorials.
 ---
 
 # Java Best Practices
 
-Expert reference for modern Java development from JDK 8 through JDK 24, combining 90+ modern language patterns with architectural best practices for enterprise applications.
+90+ modern Java patterns (JDK 8–25) with architectural best practices for enterprise applications.
 
-## Quick Start
+## Workflow
 
-### Modern Java Patterns from JDK 8-24
+Determine the usage mode:
 
-```java
-// Use Records for DTOs (JDK 16+)
-public record UserDTO(Long id, String name, String email) {}
+- **Writing new code** → Apply Core Principles below, then load the relevant pattern reference from the routing table
+- **Reviewing/refactoring code** → Check Core Principles + load [code-quality.md](references/code-quality.md) for pitfalls and review checklist
+- **Modernizing/migrating** → Load [migration-guide.md](references/migration-guide.md) for upgrade playbooks, then load pattern references as needed
+- **Spring Boot application** → Load [spring-boot.md](references/spring-boot.md) for DI, transactions, config, testing, and full REST API example
 
-// Pattern matching for instanceof (JDK 16+)
-if (obj instanceof String s) {
-    return s.toUpperCase();
-}
+## Non-Obvious Patterns
 
-// Type inference with var (JDK 10+)
-var users = userRepository.findAll(); // Type is clear from context
-
-// Immutable collections (JDK 9+)
-var statuses = List.of("ACTIVE", "PENDING", "CLOSED");
-
-// Streams and method references (JDK 8+)
-users.stream()
-    .map(User::getName)
-    .toList(); // JDK 16+ alternative to .collect(Collectors.toList())
-
-// Null handling with Optional (JDK 8+)
-Optional<User> user = userRepository.findById(id);
-return user.orElseThrow(() -> new UserNotFoundException(id));
-
-// Text blocks for multi-line strings (JDK 15+)
-var json = """
-    {
-        "name": "%s",
-        "status": "ACTIVE"
-    }
-    """.formatted(userName);
-
-// Virtual threads for high-throughput I/O (JDK 21+)
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    executor.submit(() -> processRequest(request));
-}
-```
-
-### Exception Handling Strategy
+Features an LLM may not apply correctly without guidance:
 
 ```java
-// ✅ GOOD: Unchecked custom exceptions
-public class UserNotFoundException extends RuntimeException {
-    public UserNotFoundException(Long id) {
-        super("User not found with id: " + id);
+// Primitive type patterns in switch (JDK 25) — new, not widely known
+String classify(Object obj) {
+    return switch (obj) {
+        case int i when i > 0 -> "positive int";
+        case double d         -> "double: " + d;
+        case String s         -> "string: " + s;
+        default               -> "other";
+    };
+}
+
+// Flexible constructor bodies (JDK 25) — statements BEFORE super()
+public class ValidatedUser extends BaseEntity {
+    public ValidatedUser(String name, String email) {
+        var normalized = email.toLowerCase().trim(); // allowed before super() in JDK 25
+        super(name);
+        this.normalizedEmail = normalized;
     }
 }
 
-// ✅ GOOD: Validate at the boundary
-@PostMapping("/users")
-public User createUser(@Valid @RequestBody UserRequest request) {
-    return userService.create(request);
-}
+// Stream gatherers — custom intermediate operations (JDK 25)
+var windows = List.of(1, 2, 3, 4, 5).stream()
+    .gather(Gatherers.windowSliding(3))
+    .toList(); // [[1,2,3], [2,3,4], [3,4,5]]
+
+// Virtual thread pinning — replace synchronized with ReentrantLock for I/O
+// ❌ synchronized blocks pin virtual threads to carrier threads
+// ✅ Use ReentrantLock instead for any synchronized block containing I/O
+private final ReentrantLock lock = new ReentrantLock();
+lock.lock();
+try { var r = httpClient.send(req, handler); } finally { lock.unlock(); }
 ```
 
 ## Core Principles
 
-### 1. Favor Modern Java Features (JDK 8-24)
+### 1. Favor Modern Java Features (JDK 8-25)
 - Use Records for data-only classes, pattern matching for type checks, `var` for clear local types
 - Prefer immutable collections (`List.of()`, `Map.of()`, `Stream.toList()`)
-- Use Streams API and method references for collection processing
-- Adopt virtual threads for high-throughput I/O (JDK 21+)
-- Use text blocks for multi-line strings, modern APIs (HTTP Client, java.time, Files)
+- Adopt virtual threads for I/O (JDK 21+), primitive patterns and flexible constructors (JDK 25+)
 
-### 2. Validate First, Catch Never
+### 2. Test-Driven Development (TDD)
+- Write tests first (Red-Green-Refactor); use AAA pattern (Arrange-Act-Assert)
+- Name tests descriptively: `shouldCalculateTotalWhenMultipleItems`
+- JUnit 5 + AssertJ + Mockito for unit tests; TestContainers for integration
+- See [testing.md](references/testing.md) for patterns and [spring-boot.md](references/spring-boot.md) for integration test examples
+
+### 3. Validate First, Catch Never
 - Prevent bad data at the boundary using `@Valid` and validation annotations
-- Don't catch exceptions that validation should prevent
-- Make illegal states unrepresentable
-- Use Records and sealed types to enforce constraints
+- Make illegal states unrepresentable with Records and sealed types
 
-### 3. Use Unchecked Exceptions
-- Default to `RuntimeException` for custom exceptions
-- Avoid checked exceptions - they create maintenance burden
-- Wrap checked exceptions from libraries when necessary
+### 4. Use Unchecked Exceptions
+- Default to `RuntimeException`; wrap checked exceptions from libraries
 - Use exception chaining to preserve stack traces
 
-### 4. Centralize Exception Handling
-- Use `@ControllerAdvice` for global exception handling
-- Build a custom exception hierarchy that's self-explanatory
+### 5. Centralize Exception Handling
+- `@RestControllerAdvice` for global handling; build a self-explanatory exception hierarchy
 - Never use empty catch blocks or generic `catch (Exception e)`
-- Leverage helpful NullPointerExceptions (JDK 14+)
 
-### 5. Result Objects for Expected Cases
-- Use `Optional<T>` or `Result<T>` for expected absence/failure
-- Reserve exceptions for truly exceptional conditions
-- "User not found" is a normal outcome, not an exception
-- Use Optional chaining methods (orElseThrow, or, ifPresentOrElse)
+### 6. Result Objects for Expected Cases
+- Use `Optional<T>` for expected absence; reserve exceptions for truly exceptional conditions
+- Prefer `orElseThrow()` over `get()`; use chaining methods (`or`, `ifPresentOrElse`)
 
-### 6. Know Your JDK Version
-- Check pattern references for minimum JDK version requirements
-- Target LTS versions: JDK 8, 11, 17, 21
-- Use preview features cautiously (require --enable-preview flag)
-- Plan migrations: Java 8 → 17, Java 11 → 21
+### 7. Know Your JDK Version
+- Target LTS versions: JDK 8, 11, 17, 21, 25
+- Use preview features cautiously (`--enable-preview`)
+- See [migration-guide.md](references/migration-guide.md) for upgrade playbooks (8→11→17→21→25)
 
 ## Reference Routing
 
@@ -111,7 +93,7 @@ Match the user's request to the appropriate reference file:
 
 | Domain | Triggers | Reference |
 |---|---|---|
-| Language features | Records, pattern matching, var, sealed classes, switch expressions, text blocks | [language.md](references/language.md) (18 patterns) |
+| Language features | Records, pattern matching, var, sealed classes, switch expressions, text blocks, primitive patterns | [language.md](references/language.md) (18 patterns) |
 | Collections | List.of, Map.of, immutability, sequenced collections | [collections.md](references/collections.md) (9 patterns) |
 | Streams/Optional | Collection processing, null safety, Predicate.not, gatherers | [streams.md](references/streams.md) (11 patterns) |
 | Concurrency | Virtual threads, async, structured concurrency, scoped values | [concurrency.md](references/concurrency.md) (10 patterns) |
@@ -121,9 +103,12 @@ Match the user's request to the appropriate reference file:
 | Date/time | Temporal operations, Duration, formatting | [datetime.md](references/datetime.md) (6 patterns) |
 | Security | Crypto, random, TLS, PEM | [security.md](references/security.md) (5 patterns) |
 | Tooling | Execution, profiling, jshell, JFR | [tooling.md](references/tooling.md) (7 patterns) |
+| Testing/TDD | JUnit 5, Mockito, AssertJ, TestContainers, AAA pattern, parameterized tests, test builders | [testing.md](references/testing.md) |
 | DTOs/APIs | REST request/response design | [dto-patterns.md](references/dto-patterns.md) |
 | Exception strategy | Exception hierarchies, @ControllerAdvice, Result objects | [exception-handling.md](references/exception-handling.md) |
-| Code quality | Naming, bug patterns, code smells, review checklist | [code-quality.md](references/code-quality.md) |
+| Code quality | Naming, bug patterns, code smells, pitfalls, review checklist | [code-quality.md](references/code-quality.md) |
+| Migration | JDK upgrades (8→11→17→21→25), API replacements, build modernization, JPMS | [migration-guide.md](references/migration-guide.md) |
+| Spring Boot | Constructor DI, @Transactional, @ConfigurationProperties, virtual threads, actuator, full REST API example | [spring-boot.md](references/spring-boot.md) |
 
 Each pattern reference shows old vs. modern approach with minimum JDK version. Always note the JDK version requirement when suggesting modern features.
 
@@ -136,9 +121,10 @@ Each pattern reference shows old vs. modern approach with minimum JDK version. A
 - **JDK 14**: Helpful NullPointerExceptions, switch expressions
 - **JDK 15**: Text blocks
 - **JDK 16**: Pattern matching for instanceof, Records, Stream.toList()
-- **JDK 17**: Sealed classes (stable), RandomGenerator, HexFormat
-- **JDK 21**: Virtual threads, structured concurrency, sequenced collections, Math.clamp()
-- **JDK 24**: Multi-file source programs, stable values, gatherers
+- **JDK 17** (LTS): Sealed classes (stable), RandomGenerator, HexFormat
+- **JDK 21** (LTS): Virtual threads, structured concurrency, sequenced collections, Math.clamp()
+- **JDK 24**: Multi-file source programs, stable values, gatherers (stable)
+- **JDK 25** (LTS): Primitive type patterns, flexible constructor bodies, stream gatherers API refinements
 
 ## Build Verification
 

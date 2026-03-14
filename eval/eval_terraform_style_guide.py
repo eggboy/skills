@@ -303,4 +303,4 @@ if __name__ == "__main__":
     )
     dspy.configure(lm=lm)
 
-    run_evaluation("SKILL.md")
+    run_evaluation("../terraform-style-guide/SKILL.md")

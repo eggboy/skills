@@ -610,4 +610,4 @@ if __name__ == "__main__":
     )
     dspy.configure(lm=lm)
 
-    print(run_evaluation("SKILL.md"))
+    print(run_evaluation("../cli-creator/SKILL.md"))
