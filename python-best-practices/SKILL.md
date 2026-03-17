@@ -4,10 +4,11 @@ description: >
   Python coding best practices, conventions, and architectural patterns for production-ready applications.
   Use when writing, reviewing, or refactoring Python code to apply modern patterns and idiomatic style.
   Covers: general Python conventions (PEP 8, type hints, testing with pytest/hypothesis/Faker),
-  FastAPI best practices (async endpoints, error handling, OpenAPI docs, dependency injection),
   dataframe mindset (vectorization, columnar operations, method chaining across Pandas/Polars/DuckDB/Spark),
   and Python data model (dunder methods, iterators, context managers, descriptors, properties).
   Applicable to Python 3.12+ projects using pyproject.toml and Ruff for linting.
+  USE FOR: Python style, PEP 8, type hints, testing, dataframes, Python data model.
+  DO NOT USE FOR: FastAPI applications (use fastapi skill).
 ---
 
 # Python Best Practices
@@ -16,7 +17,7 @@ description: >
 
 Load the relevant reference when the task involves these domains:
 
-- **FastAPI applications**: Read [references/fastapi.md](references/fastapi.md) — async/sync endpoints, global exception handlers, OpenAPI response docs, Pydantic integration
+- **FastAPI applications**: Defer to the `fastapi` skill for project setup, endpoints, error handling, and Pydantic integration
 - **Dataframe / data engineering**: Read [references/dataframe.md](references/dataframe.md) — columnar thinking, vectorization over row loops, method chaining, Pandas → Polars → DuckDB → Spark
 - **Python data model**: Read [references/datamodel.md](references/datamodel.md) — `__iter__`/`__next__`, `__enter__`/`__exit__`, descriptors, `@property`, native-feeling APIs
 
