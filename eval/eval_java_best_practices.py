@@ -69,8 +69,8 @@ class EvaluateDimension(dspy.Signature):
     criteria: str = dspy.InputField(desc="Detailed rubric for this dimension (1-5 scale)")
     reviewer_stance: str = dspy.InputField(desc="Reviewer stance such as strict or pragmatic")
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
+    evidence: str = dspy.OutputField(desc="Detailed critique grounded in the provided content before scoring")
     score: int = dspy.OutputField(desc="Integer score from 1 to 5")
-    evidence: str = dspy.OutputField(desc="1-2 sentences of evidence grounded in the provided content")
     suggestions: list[str] = dspy.OutputField(desc="Concrete improvement suggestions; empty if score >= 4")
 
 
@@ -87,8 +87,8 @@ class ReconcileDimension(dspy.Signature):
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
     reviewer_a: str = dspy.InputField(desc="JSON for reviewer A result")
     reviewer_b: str = dspy.InputField(desc="JSON for reviewer B result")
-    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     evidence: str = dspy.OutputField(desc="Best supported evidence for the final score")
+    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     suggestions: list[str] = dspy.OutputField(desc="Merged, deduplicated suggestions")
     confidence: str = dspy.OutputField(desc="high, medium, or low")
 
@@ -496,9 +496,21 @@ def build_heuristic_facts(skill_content: str, refs_content: str, skill_dir: Path
         frontmatter_end = skill_content.find("---", 3)
         if frontmatter_end > 0:
             frontmatter = skill_content[3:frontmatter_end]
-            for line in frontmatter.splitlines():
+            lines = frontmatter.splitlines()
+            for i, line in enumerate(lines):
                 if line.startswith("description:"):
-                    description = line[len("description:") :].strip()
+                    value = line[len("description:") :].strip()
+                    if value in ("|", ">", "|+", ">+", "|-", ">-"):
+                        parts = []
+                        for cont in lines[i + 1 :]:
+                            if cont and (cont[0] == " " or cont[0] == "\t"):
+                                parts.append(cont.strip())
+                            else:
+                                break
+                        description = " ".join(parts)
+                    else:
+                        description = value
+                    break
 
     return {
         "skill_lines": len(skill_content.splitlines()),
@@ -540,6 +552,125 @@ def normalize_score(score: int) -> int:
     return max(1, min(5, value))
 
 
+def compute_code_verdicts(heuristic_facts: dict) -> list[dict]:
+    """Produce pass/fail verdicts for criteria checkable by code alone."""
+    verdicts = []
+
+    verdicts.append(
+        {
+            "check": "skill_under_250_lines",
+            "pass": heuristic_facts["skill_lines"] < 250,
+            "value": heuristic_facts["skill_lines"],
+            "evidence": f"SKILL.md is {heuristic_facts['skill_lines']} lines (threshold: <250).",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_yaml_frontmatter",
+            "pass": heuristic_facts["has_yaml_frontmatter"],
+            "value": heuristic_facts["has_yaml_frontmatter"],
+            "evidence": "YAML frontmatter present."
+            if heuristic_facts["has_yaml_frontmatter"]
+            else "Missing YAML frontmatter.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_negative_triggers",
+            "pass": heuristic_facts["has_negative_triggers"],
+            "value": heuristic_facts["has_negative_triggers"],
+            "evidence": "Negative triggers found."
+            if heuristic_facts["has_negative_triggers"]
+            else "No negative triggers found.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_old_vs_modern_comparisons",
+            "pass": heuristic_facts["has_old_vs_modern_comparisons"],
+            "value": heuristic_facts["has_old_vs_modern_comparisons"],
+            "evidence": "Old-vs-modern comparisons found."
+            if heuristic_facts["has_old_vs_modern_comparisons"]
+            else "No old-vs-modern code comparisons.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_good_bad_markers",
+            "pass": heuristic_facts["has_good_bad_markers"],
+            "value": heuristic_facts["has_good_bad_markers"],
+            "evidence": "Good/bad markers (✅/❌) found."
+            if heuristic_facts["has_good_bad_markers"]
+            else "No ✅/❌ markers for good/bad patterns.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_reference_table",
+            "pass": heuristic_facts["has_reference_table"],
+            "value": heuristic_facts["has_reference_table"],
+            "evidence": "Reference routing table present."
+            if heuristic_facts["has_reference_table"]
+            else "No reference routing table in SKILL.md.",
+        }
+    )
+    # Parse testing elements
+    t_covered, t_total = heuristic_facts["testing_elements_covered"].split("/")
+    testing_ok = int(t_covered) >= 12
+    verdicts.append(
+        {
+            "check": "testing_elements_>=12",
+            "pass": testing_ok,
+            "value": heuristic_facts["testing_elements_covered"],
+            "evidence": f"{t_covered}/{t_total} testing elements covered (threshold: >=12).",
+        }
+    )
+    # Parse spring elements
+    s_covered, s_total = heuristic_facts["spring_elements_covered"].split("/")
+    spring_ok = int(s_covered) >= 6
+    verdicts.append(
+        {
+            "check": "spring_elements_>=6",
+            "pass": spring_ok,
+            "value": heuristic_facts["spring_elements_covered"],
+            "evidence": f"{s_covered}/{s_total} Spring Boot elements covered (threshold: >=6).",
+        }
+    )
+    # Parse pattern domains
+    d_covered, d_total = heuristic_facts["pattern_domains_covered"].split("/")
+    domains_ok = int(d_covered) >= 12
+    verdicts.append(
+        {
+            "check": "pattern_domains_>=12",
+            "pass": domains_ok,
+            "value": heuristic_facts["pattern_domains_covered"],
+            "evidence": f"{d_covered}/{d_total} pattern domains covered (threshold: >=12).",
+        }
+    )
+    # JDK version coverage
+    jdk_count = len(heuristic_facts["jdk_versions_in_scope"])
+    jdk_ok = jdk_count >= 8
+    verdicts.append(
+        {
+            "check": "jdk_versions_>=8",
+            "pass": jdk_ok,
+            "value": jdk_count,
+            "evidence": f"{jdk_count} JDK versions referenced (threshold: >=8).",
+        }
+    )
+    desc_ok = heuristic_facts["description_length"] >= 50
+    verdicts.append(
+        {
+            "check": "description_length_adequate",
+            "pass": desc_ok,
+            "value": heuristic_facts["description_length"],
+            "evidence": f"Description is {heuristic_facts['description_length']} chars (threshold: >=50).",
+        }
+    )
+
+    return verdicts
+
+
 def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) -> str:
     """Combine deterministic and model-extracted facts into one prompt block."""
     payload = {
@@ -555,6 +686,7 @@ def render_report(
     overall: float,
     report: dspy.Prediction,
     critique: dict | None = None,
+    code_verdicts: list[dict] | None = None,
 ) -> str:
     """Render the final evaluation report as markdown text."""
     lines = []
@@ -562,6 +694,18 @@ def render_report(
     lines.append("  JAVA BEST PRACTICES SKILL EVALUATION REPORT")
     lines.append("=" * 70)
     lines.append("")
+
+    if code_verdicts:
+        lines.append("## Code-Based Verdicts")
+        lines.append("")
+        passed = sum(1 for v in code_verdicts if v["pass"])
+        lines.append(f"  {passed}/{len(code_verdicts)} checks passed")
+        lines.append("")
+        for v in code_verdicts:
+            marker = "✅ PASS" if v["pass"] else "❌ FAIL"
+            lines.append(f"  {marker}  {v['check']}: {v['evidence']}")
+        lines.append("")
+
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(report.executive_summary)
@@ -639,6 +783,9 @@ def run_evaluation(skill_path: str) -> str:
 
     skill_heuristics = build_heuristic_facts(skill_content, refs_content, skill_dir, scope="skill_only")
     full_heuristics = build_heuristic_facts(skill_content, refs_content, skill_dir, scope="full")
+
+    # Code-based verdicts — deterministic pass/fail checks that bypass the LLM
+    code_verdicts = compute_code_verdicts(full_heuristics)
 
     print(f"Evaluating: {skill_path}")
     print(f"SKILL.md: {len(skill_content)} chars, ~{len(skill_content) // 4} tokens")
@@ -782,7 +929,7 @@ def run_evaluation(skill_path: str) -> str:
         overall_score=overall,
     )
 
-    return render_report(results, weighted_total, overall, report, critique_payload)
+    return render_report(results, weighted_total, overall, report, critique_payload, code_verdicts)
 
 
 if __name__ == "__main__":

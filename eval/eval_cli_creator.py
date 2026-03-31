@@ -22,6 +22,11 @@ from pathlib import Path
 
 import dspy
 
+# GPT-5 models only support temperature=1; tell litellm to drop unsupported params
+import litellm
+
+litellm.drop_params = True
+
 # ---------------------------------------------------------------------------
 # DSPy Signatures
 # ---------------------------------------------------------------------------
@@ -68,8 +73,8 @@ class EvaluateDimension(dspy.Signature):
     criteria: str = dspy.InputField(desc="Detailed rubric for this dimension (1-5 scale)")
     reviewer_stance: str = dspy.InputField(desc="Reviewer stance such as strict or pragmatic")
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
+    evidence: str = dspy.OutputField(desc="Detailed critique grounded in the provided content before scoring")
     score: int = dspy.OutputField(desc="Integer score from 1 to 5")
-    evidence: str = dspy.OutputField(desc="1-2 sentences of evidence grounded in the provided content")
     suggestions: list[str] = dspy.OutputField(desc="Concrete improvement suggestions; empty if score >= 4")
 
 
@@ -86,8 +91,8 @@ class ReconcileDimension(dspy.Signature):
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
     reviewer_a: str = dspy.InputField(desc="JSON for reviewer A result")
     reviewer_b: str = dspy.InputField(desc="JSON for reviewer B result")
-    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     evidence: str = dspy.OutputField(desc="Best supported evidence for the final score")
+    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     suggestions: list[str] = dspy.OutputField(desc="Merged, deduplicated suggestions")
     confidence: str = dspy.OutputField(desc="high, medium, or low")
 
@@ -346,9 +351,22 @@ def build_heuristic_facts(skill_content: str, refs_content: str, templates_conte
         frontmatter_end = skill_content.find("---", 3)
         if frontmatter_end > 0:
             frontmatter = skill_content[3:frontmatter_end]
-            for line in frontmatter.splitlines():
+            lines = frontmatter.splitlines()
+            for i, line in enumerate(lines):
                 if line.startswith("description:"):
-                    description = line[len("description:") :].strip()
+                    value = line[len("description:") :].strip()
+                    if value in ("|", ">", "|+", ">+", "|-", ">-"):
+                        # Block scalar — collect indented continuation lines
+                        parts = []
+                        for cont in lines[i + 1 :]:
+                            if cont and (cont[0] == " " or cont[0] == "\t"):
+                                parts.append(cont.strip())
+                            else:
+                                break
+                        description = " ".join(parts)
+                    else:
+                        description = value
+                    break
 
     # Bash-specific checks
     has_shellcheck_mention = "shellcheck" in full_content.lower()
@@ -397,6 +415,112 @@ def normalize_score(score: int) -> int:
     return max(1, min(5, int(score)))
 
 
+def compute_code_verdicts(heuristic_facts: dict) -> list[dict]:
+    """Produce pass/fail verdicts for criteria checkable by code alone."""
+    verdicts = []
+
+    verdicts.append(
+        {
+            "check": "skill_under_200_lines",
+            "pass": heuristic_facts["skill_lines"] < 200,
+            "value": heuristic_facts["skill_lines"],
+            "evidence": f"SKILL.md is {heuristic_facts['skill_lines']} lines (threshold: <200).",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_yaml_frontmatter",
+            "pass": heuristic_facts["has_yaml_frontmatter"],
+            "value": heuristic_facts["has_yaml_frontmatter"],
+            "evidence": "YAML frontmatter present."
+            if heuristic_facts["has_yaml_frontmatter"]
+            else "Missing YAML frontmatter.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_negative_triggers",
+            "pass": heuristic_facts["has_negative_triggers"],
+            "value": heuristic_facts["has_negative_triggers"],
+            "evidence": "Negative triggers found."
+            if heuristic_facts["has_negative_triggers"]
+            else "No negative triggers found.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_bad_good_examples",
+            "pass": heuristic_facts["has_bad_good_examples"],
+            "value": heuristic_facts["has_bad_good_examples"],
+            "evidence": "Bad/good comparison examples found."
+            if heuristic_facts["has_bad_good_examples"]
+            else "No bad/good comparison examples.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_language_table",
+            "pass": heuristic_facts["has_language_table"],
+            "value": heuristic_facts["has_language_table"],
+            "evidence": "Language selection table present."
+            if heuristic_facts["has_language_table"]
+            else "No language selection table in SKILL.md.",
+        }
+    )
+    # Parse clig principles coverage
+    covered, total = heuristic_facts["clig_principles_covered"].split("/")
+    principles_ok = int(covered) >= 10
+    verdicts.append(
+        {
+            "check": "clig_principles_coverage_>=10",
+            "pass": principles_ok,
+            "value": heuristic_facts["clig_principles_covered"],
+            "evidence": f"{covered}/{total} clig.dev principles covered (threshold: >=10).",
+        }
+    )
+    all_langs = all(heuristic_facts["languages_covered"].values())
+    verdicts.append(
+        {
+            "check": "all_5_languages_covered",
+            "pass": all_langs,
+            "value": heuristic_facts["languages_covered"],
+            "evidence": "All 5 languages covered."
+            if all_langs
+            else f"Missing languages: {[k for k, v in heuristic_facts['languages_covered'].items() if not v]}.",
+        }
+    )
+    has_templates = heuristic_facts["languages_with_templates"] >= 5
+    verdicts.append(
+        {
+            "check": "has_templates_for_all_languages",
+            "pass": has_templates,
+            "value": heuristic_facts["languages_with_templates"],
+            "evidence": f"{heuristic_facts['languages_with_templates']} template(s) (threshold: >=5).",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_shellcheck_mention",
+            "pass": heuristic_facts["has_shellcheck_mention"],
+            "value": heuristic_facts["has_shellcheck_mention"],
+            "evidence": "shellcheck mentioned."
+            if heuristic_facts["has_shellcheck_mention"]
+            else "No shellcheck mention for Bash validation.",
+        }
+    )
+    desc_ok = heuristic_facts["description_length"] >= 50
+    verdicts.append(
+        {
+            "check": "description_length_adequate",
+            "pass": desc_ok,
+            "value": heuristic_facts["description_length"],
+            "evidence": f"Description is {heuristic_facts['description_length']} chars (threshold: >=50).",
+        }
+    )
+
+    return verdicts
+
+
 def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) -> str:
     """Combine deterministic and model-extracted facts into one prompt block."""
     payload = {
@@ -406,13 +530,31 @@ def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) 
     return json.dumps(payload, indent=2)
 
 
-def render_report(results: list[dict], weighted_total: float, overall: float, report: dspy.Prediction) -> str:
+def render_report(
+    results: list[dict],
+    weighted_total: float,
+    overall: float,
+    report: dspy.Prediction,
+    code_verdicts: list[dict] | None = None,
+) -> str:
     """Render the final evaluation report as markdown text."""
     lines = []
     lines.append("=" * 70)
     lines.append("  CLI CREATOR SKILL EVALUATION REPORT")
     lines.append("=" * 70)
     lines.append("")
+
+    if code_verdicts:
+        lines.append("## Code-Based Verdicts")
+        lines.append("")
+        passed = sum(1 for v in code_verdicts if v["pass"])
+        lines.append(f"  {passed}/{len(code_verdicts)} checks passed")
+        lines.append("")
+        for v in code_verdicts:
+            marker = "✅ PASS" if v["pass"] else "❌ FAIL"
+            lines.append(f"  {marker}  {v['check']}: {v['evidence']}")
+        lines.append("")
+
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(report.executive_summary)
@@ -469,6 +611,9 @@ def run_evaluation(skill_path: str) -> str:
     full_content = skill_content + refs_content + templates_content
 
     heuristic_facts = build_heuristic_facts(skill_content, refs_content, templates_content, skill_dir)
+
+    # Code-based verdicts — deterministic pass/fail checks that bypass the LLM
+    code_verdicts = compute_code_verdicts(heuristic_facts)
 
     print(f"Evaluating: {skill_path}")
     print(f"SKILL.md: {len(skill_content)} chars, ~{len(skill_content) // 4} tokens")
@@ -531,30 +676,52 @@ def run_evaluation(skill_path: str) -> str:
             observable_facts=facts,
         )
 
-        reconciliation = reconcile(
-            dimension=dim_name,
-            criteria=dim_cfg["criteria"],
-            observable_facts=facts,
-            reviewer_a=json.dumps(
-                {
-                    "score": normalize_score(reviewer_a.score),
-                    "evidence": reviewer_a.evidence,
-                    "suggestions": reviewer_a.suggestions,
-                },
-                indent=2,
-            ),
-            reviewer_b=json.dumps(
-                {
-                    "score": normalize_score(reviewer_b.score),
-                    "evidence": reviewer_b.evidence,
-                    "suggestions": reviewer_b.suggestions,
-                },
-                indent=2,
-            ),
-        )
+        score_a = normalize_score(reviewer_a.score)
+        score_b = normalize_score(reviewer_b.score)
 
-        score = normalize_score(reconciliation.final_score)
+        # Skip reconciliation LLM call when both reviewers agree
+        if score_a == score_b:
+            merged_suggestions = list(dict.fromkeys((reviewer_a.suggestions or []) + (reviewer_b.suggestions or [])))
+            score = score_a
+            evidence = reviewer_a.evidence
+            suggestions = merged_suggestions
+            confidence = "high"
+            print(f"    Strict:    {score_a}/5")
+            print(f"    Pragmatic: {score_b}/5")
+            print(f"    Final:     (reviewers agree, skipped reconciliation)")
+        else:
+            reconciliation = reconcile(
+                dimension=dim_name,
+                criteria=dim_cfg["criteria"],
+                observable_facts=facts,
+                reviewer_a=json.dumps(
+                    {
+                        "score": score_a,
+                        "evidence": reviewer_a.evidence,
+                        "suggestions": reviewer_a.suggestions,
+                    },
+                    indent=2,
+                ),
+                reviewer_b=json.dumps(
+                    {
+                        "score": score_b,
+                        "evidence": reviewer_b.evidence,
+                        "suggestions": reviewer_b.suggestions,
+                    },
+                    indent=2,
+                ),
+            )
+            score = normalize_score(reconciliation.final_score)
+            evidence = reconciliation.evidence
+            suggestions = reconciliation.suggestions
+            confidence = reconciliation.confidence
+            print(f"    Strict:    {score_a}/5")
+            print(f"    Pragmatic: {score_b}/5")
+            print(f"    Final:     (reconciled)")
+
         weighted_total += score * dim_cfg["weight"]
+        bar = "█" * score + "░" * (5 - score)
+        print(f"    Result:    {bar} {score}/5 ({confidence} confidence)")
 
         result = {
             "dimension": dim_name,
@@ -562,26 +729,21 @@ def run_evaluation(skill_path: str) -> str:
             "weight": dim_cfg["weight"],
             "weighted_score": round(score * dim_cfg["weight"], 3),
             "scope": scope,
-            "confidence": reconciliation.confidence,
-            "evidence": reconciliation.evidence,
-            "suggestions": reconciliation.suggestions,
+            "confidence": confidence,
+            "evidence": evidence,
+            "suggestions": suggestions,
             "reviewers": {
                 "strict": {
-                    "score": normalize_score(reviewer_a.score),
+                    "score": score_a,
                     "evidence": reviewer_a.evidence,
                 },
                 "pragmatic": {
-                    "score": normalize_score(reviewer_b.score),
+                    "score": score_b,
                     "evidence": reviewer_b.evidence,
                 },
             },
         }
         results.append(result)
-
-        bar = "█" * score + "░" * (5 - score)
-        print(f"    Strict:    {normalize_score(reviewer_a.score)}/5")
-        print(f"    Pragmatic: {normalize_score(reviewer_b.score)}/5")
-        print(f"    Final:     {bar} {score}/5 ({reconciliation.confidence} confidence)")
 
     overall = round(weighted_total / 5, 3)
     print(f"\n{'=' * 70}")
@@ -596,7 +758,7 @@ def run_evaluation(skill_path: str) -> str:
         overall_score=overall,
     )
 
-    return render_report(results, weighted_total, overall, report)
+    return render_report(results, weighted_total, overall, report, code_verdicts)
 
 
 if __name__ == "__main__":
@@ -605,8 +767,8 @@ if __name__ == "__main__":
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
         api_base=os.environ["AZURE_OPENAI_ENDPOINT"],
         api_version="2025-01-01-preview",
-        temperature=1.0,
         max_tokens=16000,
+        reasoning_effort="none",
     )
     dspy.configure(lm=lm)
 

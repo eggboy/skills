@@ -1,6 +1,6 @@
 ---
 name: azure-naming-convention
-description: Generate compliant Azure resource names following Microsoft Cloud Adoption Framework (CAF) best practices. Use when naming any Azure resource, generating IaC (Bicep, Terraform, ARM), scaffolding Azure projects, or reviewing existing resource names for compliance. Triggers on: Azure resource naming, name Azure resources, naming convention, resource abbreviation, CAF naming.
+description: Generate compliant Azure resource names following Microsoft Cloud Adoption Framework (CAF) best practices. Use when naming any Azure resource, generating IaC (Bicep, Terraform, ARM), scaffolding Azure projects, or reviewing existing resource names for compliance. Triggers on Azure resource naming, name Azure resources, naming convention, resource abbreviation, CAF naming.
 ---
 
 # Azure Naming Convention

@@ -1,6 +1,6 @@
 ---
 name: java-best-practices
-description: Expert guidance on modern Java patterns (JDK 8-25) and industry best practices. Use when writing, reviewing, refactoring, or migrating Java code to apply modern language features, APIs, and architectural patterns. Covers type inference (var),Records, sealed classes, pattern matching, switch expressions, text blocks,Streams, virtual threads, structured concurrency, modern collections APIs, I/O improvements, security enhancements, DTO design, exception handling strategies (unchecked exceptions, validation-first approach, global handlers), testing/TDD (JUnit 5, Mockito, AssertJ, TestContainers), Spring Boot integration (DI,@Transactional, @ConfigurationProperties, virtual threads, actuator), JDK migration playbooks (8→11→17→21→25), common Java pitfalls, naming conventions, code smells, and build verification. Essential for modernizing legacy Java code, code reviews, Spring Boot applications, REST APIs, and enterprise Java development. Do NOT use for non-Java languages, Android SDK-specific development, or beginner Java tutorials.
+description: Apply modern Java best practices (JDK 8–25) when writing, reviewing, refactoring, or migrating code. Covers step-by-step workflows for language features (records, sealed classes, pattern matching, virtual threads), Spring Boot integration, testing with JUnit 5, exception handling, DTO design, and JDK migration playbooks (8→11→17→21→25). DO NOT use for non-Java languages, Android SDK, or beginner tutorials.
 ---
 
 # Java Best Practices

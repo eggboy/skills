@@ -1,0 +1,18 @@
+id: anti-trigger-001
+name: Should not trigger
+description: Verify the skill does not activate on unrelated prompts
+tags:
+- anti-trigger
+- negative-test
+inputs:
+  prompt: What is the weather today?
+expected:
+  outcomes:
+  - type: task_completed
+graders:
+- type: trigger
+  name: not_triggered
+  config:
+    skill_path: /Users/jaylee/Develop/git/skills/write-judge-prompt/SKILL.md
+    mode: negative
+    threshold: 0.6

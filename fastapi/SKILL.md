@@ -1,8 +1,6 @@
 ---
 name: fastapi
-description: FastAPI best practices and conventions with uv project setup, Pydantic models, dependency injection, async/sync endpoints, streaming, and OpenAPI docs. Keeps FastAPI code clean and up to date with the latest features and patterns.
-  USE FOR: FastAPI projects, API development with FastAPI, uv + fastapi setup, Pydantic validation, FastAPI dependency injection, OpenAPI docs, SSE streaming.
-  DO NOT USE FOR: general Python style or conventions (use python-best-practices), dataframe/data engineering (use python-best-practices), Python data model (use python-best-practices).
+description: Build and configure FastAPI applications following best practices with uv project setup, Pydantic models, dependency injection, async/sync endpoints, SSE streaming, and OpenAPI docs. Use when developing APIs with FastAPI or setting up new FastAPI projects. DO NOT use for general Python style (use python-best-practices) or dataframe workflows.
 ---
 
 # FastAPI
@@ -86,7 +84,7 @@ pyproject.toml
 
 ## Lifespan
 
-Use the `lifespan` async context manager for startup/shutdown logic. Do not use the deprecated `on_event`.
+Use the `lifespan` async context manager for startup/shutdown logic (replaces the deprecated `on_event`).
 
 ```python
 from contextlib import asynccontextmanager
@@ -133,7 +131,7 @@ async def get_item(item_id: int) -> Item: ...
 
 ## Use `Annotated`
 
-Always prefer the `Annotated` style for parameter and dependency declarations.
+Prefer the `Annotated` style for parameter and dependency declarations.
 
 It keeps the function signatures working in other contexts, respects the types, allows reusability.
 
@@ -153,18 +151,6 @@ app = FastAPI()
 async def read_item(
     item_id: Annotated[int, Path(ge=1, description="The item ID")],
     q: Annotated[str | None, Query(max_length=50)] = None,
-):
-    return {"message": "Hello World"}
-```
-
-instead of:
-
-```python
-# DO NOT DO THIS
-@app.get("/items/{item_id}")
-async def read_item(
-    item_id: int = Path(ge=1, description="The item ID"),
-    q: str | None = Query(default=None, max_length=50),
 ):
     return {"message": "Hello World"}
 ```
@@ -195,20 +181,9 @@ async def read_item(current_user: CurrentUserDep):
     return {"message": "Hello World"}
 ```
 
-instead of:
+## Required Parameters Without Ellipsis
 
-```python
-# DO NOT DO THIS
-@app.get("/items/")
-async def read_item(current_user: dict = Depends(get_current_user)):
-    return {"message": "Hello World"}
-```
-
-## Do not use Ellipsis for *path operations* or Pydantic models
-
-Do not use `...` as a default value for required parameters, it's not needed and not recommended.
-
-Do this, without Ellipsis (`...`):
+Omit `...` from required parameters — it's implicit and redundant:
 
 ```python
 from typing import Annotated
@@ -228,18 +203,6 @@ app = FastAPI()
 
 @app.post("/items/")
 async def create_item(item: Item, project_id: Annotated[int, Query()]): ...
-```
-
-instead of this:
-
-```python
-# DO NOT DO THIS
-class Item(BaseModel):
-    name: str = ...
-    price: float = Field(..., gt=0)
-
-@app.post("/items/")
-async def create_item(item: Item, project_id: Annotated[int, Query(...)]): ...
 ```
 
 ## Return Type or Response Model
@@ -294,9 +257,7 @@ This can be particularly useful when filtering data to expose only the public fi
 
 ## Performance
 
-Do not use `ORJSONResponse` or `UJSONResponse`, they are deprecated.
-
-Instead, declare a return type or response model. Pydantic will handle the data serialization on the Rust side.
+Rely on return types or `response_model` for serialization — Pydantic handles it in Rust. `ORJSONResponse` and `UJSONResponse` are deprecated.
 
 ## Including Routers
 
@@ -320,28 +281,6 @@ async def list_items():
 # In main.py
 app.include_router(router)
 ```
-
-instead of this:
-
-```python
-# DO NOT DO THIS
-from fastapi import APIRouter, FastAPI
-
-app = FastAPI()
-
-router = APIRouter()
-
-
-@router.get("/")
-async def list_items():
-    return []
-
-
-# In main.py
-app.include_router(router, prefix="/items", tags=["items"])
-```
-
-There could be exceptions, but try to follow this convention.
 
 Apply shared dependencies at the router level via `dependencies=[Depends(...)]`.
 
@@ -379,31 +318,19 @@ In case of doubt, or by default, use regular `def` functions, those will be run 
 
 The same rules apply to dependencies.
 
-Make sure blocking code is not run inside of `async` functions. The logic will work, but will damage the performance heavily.
-
-When needing to mix blocking and async code, see Asyncer in [the other tools reference](references/other-tools.md).
+Running blocking code inside `async` functions will severely degrade performance — use plain `def` instead, or see [the other tools reference](references/other-tools.md) for Asyncer.
 
 ## Streaming (JSON Lines, SSE, bytes)
 
 See [the streaming reference](references/streaming.md) for JSON Lines, Server-Sent Events (`EventSourceResponse`, `ServerSentEvent`), and byte streaming (`StreamingResponse`) patterns.
 
-## Tooling
+## Tooling and Other Libraries
 
-See [the other tools reference](references/other-tools.md) for details on uv, Ruff, ty for package management, linting, type checking, formatting, etc.
+See [the other tools reference](references/other-tools.md) for uv, Ruff, ty, Asyncer, SQLModel, and HTTPX.
 
-## Other Libraries
+## Use `Annotated` Instead of Pydantic RootModels
 
-See [the other tools reference](references/other-tools.md) for details on other libraries:
-
-* Asyncer for handling async and await, concurrency, mixing async and blocking code, prefer it over AnyIO or asyncio.
-* SQLModel for working with SQL databases, prefer it over SQLAlchemy.
-* HTTPX for interacting with HTTP (other APIs), prefer it over Requests.
-
-## Do not use Pydantic RootModels
-
-Do not use Pydantic `RootModel`, instead use regular type annotations with `Annotated` and Pydantic validation utilities.
-
-For example, for a list with validations you could do:
+Prefer regular type annotations with `Annotated` and Pydantic validation — FastAPI creates a `TypeAdapter` automatically, making `RootModel` unnecessary:
 
 ```python
 from typing import Annotated
@@ -419,35 +346,9 @@ async def create_items(items: Annotated[list[int], Field(min_length=1), Body()])
     return items
 ```
 
-instead of:
+## One HTTP Operation per Function
 
-```python
-# DO NOT DO THIS
-from typing import Annotated
-
-from fastapi import FastAPI
-from pydantic import Field, RootModel
-
-app = FastAPI()
-
-
-class ItemList(RootModel[Annotated[list[int], Field(min_length=1)]]):
-    pass
-
-
-@app.post("/items/")
-async def create_items(items: ItemList):
-    return items
-
-```
-
-FastAPI supports these type annotations and will create a Pydantic `TypeAdapter` for them, so that types can work as normally and there's no need for the custom logic and types in RootModels.
-
-## Use one HTTP operation per function
-
-Don't mix HTTP operations in a single function, having one function per HTTP operation helps separate concerns and organize the code.
-
-Do this:
+Use separate functions per HTTP method to keep concerns clear:
 
 ```python
 from fastapi import FastAPI
@@ -469,25 +370,3 @@ async def list_items():
 async def create_item(item: Item):
     return item
 ```
-
-instead of this:
-
-```python
-# DO NOT DO THIS
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-
-app = FastAPI()
-
-
-class Item(BaseModel):
-    name: str
-
-
-@app.api_route("/items/", methods=["GET", "POST"])
-async def handle_items(request: Request):
-    if request.method == "GET":
-        return []
-```
-
-

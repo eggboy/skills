@@ -9,7 +9,11 @@ Two-pass evaluation:
   Pass 1 (SKILL.md only): dimensions the agent sees on first load
   Pass 2 (SKILL.md + references/): dimensions measuring full skill coverage
 
-Aligned with the agentskills.io skill-creator specification.
+Uses dual-reviewer reconciliation for scoring stability:
+  - heuristic observations extracted directly from files,
+  - a DSPy fact-extraction pass,
+  - two independent rubric judges (strict + pragmatic), and
+  - a DSPy reconciliation pass that produces the final score.
 """
 
 import json
@@ -25,40 +29,84 @@ import dspy
 # ---------------------------------------------------------------------------
 
 
-class EvaluateDimension(dspy.Signature):
-    """Evaluate an AI-agent skill document on a single quality dimension.
+class ExtractObservableFacts(dspy.Signature):
+    """Extract grounded facts from the skill package before scoring.
 
-    You are an expert evaluator of Agent Skills — modular instruction documents
-    that extend AI coding assistants (GitHub Copilot, Claude, etc.) with
-    domain-specific knowledge.
+    You are preparing evidence for an evaluator of Agent Skills — modular
+    instruction documents that extend AI coding assistants with domain-specific
+    knowledge about Terraform/HCL style and best practices.
 
-    Score the skill strictly on the given dimension.  Return:
-      - score: integer 1-5  (1=poor, 3=adequate, 5=excellent)
-      - evidence: 1-2 sentences citing specific content from the skill
-      - suggestions: concrete, actionable improvements (empty list if score >= 4)
+    Extract only facts directly supported by the provided content. Do not score
+    the skill. Focus on observable details such as:
+      - files and references present,
+      - whether negative triggers exist,
+      - whether bad-vs-good HCL comparisons exist,
+      - whether moved blocks, import blocks, or check blocks are covered,
+      - whether module patterns are documented,
+      - whether error-prevention anti-patterns are listed,
+      - whether progressive disclosure patterns are demonstrated.
     """
 
-    skill_content: str = dspy.InputField(desc="Full text of the SKILL.md file")
+    skill_content: str = dspy.InputField(desc="Full text of the skill content in scope")
+    heuristic_facts: str = dspy.InputField(desc="JSON summary of facts found via deterministic code")
+    observable_facts: list[str] = dspy.OutputField(desc="Short, grounded fact bullets supported by the content")
+
+
+class EvaluateDimension(dspy.Signature):
+    """Evaluate a single dimension using grounded evidence and a reviewer stance.
+
+    Score the skill strictly on the given dimension.
+
+    Requirements:
+      - Use the rubric exactly.
+      - Base claims only on the provided content and facts.
+      - Do not reward implied content that is not present.
+      - If uncertain, score conservatively.
+    """
+
+    skill_content: str = dspy.InputField(desc="Full text of the skill content in scope")
     dimension: str = dspy.InputField(desc="Quality dimension to evaluate")
     criteria: str = dspy.InputField(desc="Detailed rubric for this dimension (1-5 scale)")
+    reviewer_stance: str = dspy.InputField(desc="Reviewer stance such as strict or pragmatic")
+    observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
+    evidence: str = dspy.OutputField(desc="Detailed critique grounded in the provided content before scoring")
     score: int = dspy.OutputField(desc="Integer score from 1 to 5")
-    evidence: str = dspy.OutputField(desc="1-2 sentences of supporting evidence from the skill")
-    suggestions: list[str] = dspy.OutputField(desc="List of concrete improvement suggestions (empty if score >= 4)")
+    suggestions: list[str] = dspy.OutputField(desc="Concrete improvement suggestions; empty if score >= 4")
+
+
+class ReconcileDimension(dspy.Signature):
+    """Reconcile two judge outputs into one final dimension result.
+
+    Produce the final score after comparing the two reviewers. Prefer the more
+    conservative score when evidence is weak. Do not average mechanically;
+    instead, pick the score best justified by the evidence.
+    """
+
+    dimension: str = dspy.InputField(desc="Quality dimension being reconciled")
+    criteria: str = dspy.InputField(desc="Detailed rubric for this dimension")
+    observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
+    reviewer_a: str = dspy.InputField(desc="JSON for reviewer A result")
+    reviewer_b: str = dspy.InputField(desc="JSON for reviewer B result")
+    evidence: str = dspy.OutputField(desc="Best supported evidence for the final score")
+    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
+    suggestions: list[str] = dspy.OutputField(desc="Merged, deduplicated suggestions")
+    confidence: str = dspy.OutputField(desc="high, medium, or low")
 
 
 class SynthesizeReport(dspy.Signature):
     """Synthesize per-dimension evaluations into a final improvement report.
 
-    Produce a prioritised, actionable improvement plan.  Focus on the
-    dimensions with the lowest scores first.  Each recommendation must be
-    concrete (say exactly what to add/change/remove and where).
+    Produce a prioritized, actionable improvement plan for the Terraform Style
+    Guide skill. Focus on the dimensions with the lowest scores first. Each
+    recommendation must be concrete (say exactly what to add/change/remove
+    and where).
     """
 
-    skill_content: str = dspy.InputField(desc="Full text of the SKILL.md")
-    dimension_results: str = dspy.InputField(desc="JSON array of per-dimension evaluation results")
+    skill_content: str = dspy.InputField(desc="Full text of the SKILL.md + references")
+    dimension_results: str = dspy.InputField(desc="JSON array of reconciled per-dimension evaluation results")
     overall_score: float = dspy.InputField(desc="Weighted overall score (0-1)")
     executive_summary: str = dspy.OutputField(desc="2-3 sentence overall assessment")
-    top_recommendations: list[str] = dspy.OutputField(desc="Top 5-7 prioritised, concrete recommendations")
+    top_recommendations: list[str] = dspy.OutputField(desc="Top 5-7 prioritized, concrete recommendations")
     strengths: list[str] = dspy.OutputField(desc="Top 3-4 strengths to preserve")
 
 
@@ -169,7 +217,7 @@ RUBRIC = {
 
 
 # ---------------------------------------------------------------------------
-# Evaluation pipeline
+# Evaluation helpers
 # ---------------------------------------------------------------------------
 
 
@@ -184,28 +232,292 @@ def load_references(skill_dir: Path) -> str:
     return "".join(parts)
 
 
-def run_evaluation(skill_path: str) -> None:
+def build_heuristic_facts(skill_content: str, refs_content: str, skill_dir: Path) -> dict:
+    """Build deterministic observations to ground DSPy scoring."""
+    references_dir = skill_dir / "references"
+    reference_files = sorted(path.name for path in references_dir.glob("*.md")) if references_dir.is_dir() else []
+
+    full_content = skill_content + refs_content
+
+    code_block_count_skill = skill_content.count("```") // 2
+    code_block_count_refs = refs_content.count("```") // 2
+
+    has_yaml_frontmatter = skill_content.startswith("---")
+
+    # Terraform-specific coverage checks
+    tf_topics = [
+        "moved block",
+        "import block",
+        "check block",
+        "data source",
+        "module",
+        "workspace",
+        "backend",
+        "provider",
+        "variable",
+        "output",
+        "local",
+        "lifecycle",
+        "for_each",
+        "count",
+        "dynamic block",
+        "validation",
+    ]
+    topics_covered = sum(1 for t in tf_topics if t.lower() in full_content.lower())
+
+    has_bad_good_examples = ("❌" in full_content and "✅" in full_content) or (
+        "bad" in full_content.lower() and "good" in full_content.lower()
+    )
+    has_anti_patterns = "anti-pattern" in full_content.lower() or "do not" in full_content.lower()
+
+    description = ""
+    if has_yaml_frontmatter:
+        frontmatter_end = skill_content.find("---", 3)
+        if frontmatter_end > 0:
+            frontmatter = skill_content[3:frontmatter_end]
+            lines = frontmatter.splitlines()
+            for i, line in enumerate(lines):
+                if line.startswith("description:"):
+                    value = line[len("description:") :].strip()
+                    if value in ("|", ">", "|+", ">+", "|-", ">-"):
+                        parts = []
+                        for cont in lines[i + 1 :]:
+                            if cont and (cont[0] == " " or cont[0] == "\t"):
+                                parts.append(cont.strip())
+                            else:
+                                break
+                        description = " ".join(parts)
+                    else:
+                        description = value
+                    break
+
+    return {
+        "skill_lines": len(skill_content.splitlines()),
+        "skill_chars": len(skill_content),
+        "reference_file_count": len(reference_files),
+        "reference_files": reference_files,
+        "code_block_count_skill": code_block_count_skill,
+        "code_block_count_refs": code_block_count_refs,
+        "has_yaml_frontmatter": has_yaml_frontmatter,
+        "has_negative_triggers": "DO NOT USE" in skill_content.upper() or "NOT FOR" in skill_content.upper(),
+        "tf_topics_covered": f"{topics_covered}/{len(tf_topics)}",
+        "has_bad_good_examples": has_bad_good_examples,
+        "has_anti_patterns": has_anti_patterns,
+        "description_length": len(description),
+    }
+
+
+def normalize_score(score: int) -> int:
+    """Clamp model output to the supported rubric range."""
+    return max(1, min(5, int(score)))
+
+
+def compute_code_verdicts(heuristic_facts: dict) -> list[dict]:
+    """Produce pass/fail verdicts for criteria checkable by code alone."""
+    verdicts = []
+
+    verdicts.append(
+        {
+            "check": "skill_under_500_lines",
+            "pass": heuristic_facts["skill_lines"] < 500,
+            "value": heuristic_facts["skill_lines"],
+            "evidence": f"SKILL.md is {heuristic_facts['skill_lines']} lines (threshold: <500).",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_yaml_frontmatter",
+            "pass": heuristic_facts["has_yaml_frontmatter"],
+            "value": heuristic_facts["has_yaml_frontmatter"],
+            "evidence": "YAML frontmatter present."
+            if heuristic_facts["has_yaml_frontmatter"]
+            else "Missing YAML frontmatter.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_negative_triggers",
+            "pass": heuristic_facts["has_negative_triggers"],
+            "value": heuristic_facts["has_negative_triggers"],
+            "evidence": "Negative triggers found."
+            if heuristic_facts["has_negative_triggers"]
+            else "No negative triggers found.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_bad_good_examples",
+            "pass": heuristic_facts["has_bad_good_examples"],
+            "value": heuristic_facts["has_bad_good_examples"],
+            "evidence": "Bad/good comparison examples found."
+            if heuristic_facts["has_bad_good_examples"]
+            else "No bad/good comparison examples.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_anti_patterns",
+            "pass": heuristic_facts["has_anti_patterns"],
+            "value": heuristic_facts["has_anti_patterns"],
+            "evidence": "Anti-pattern / 'do not' guidance present."
+            if heuristic_facts["has_anti_patterns"]
+            else "No anti-pattern guidance found.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_reference_files",
+            "pass": heuristic_facts["reference_file_count"] >= 1,
+            "value": heuristic_facts["reference_file_count"],
+            "evidence": f"{heuristic_facts['reference_file_count']} reference file(s)."
+            if heuristic_facts["reference_file_count"] >= 1
+            else "No reference files.",
+        }
+    )
+    # Parse tf topics coverage
+    covered, total = heuristic_facts["tf_topics_covered"].split("/")
+    topics_ok = int(covered) >= 10
+    verdicts.append(
+        {
+            "check": "tf_topics_coverage_>=10",
+            "pass": topics_ok,
+            "value": heuristic_facts["tf_topics_covered"],
+            "evidence": f"{covered}/{total} Terraform topics covered (threshold: >=10).",
+        }
+    )
+    desc_ok = heuristic_facts["description_length"] >= 50
+    verdicts.append(
+        {
+            "check": "description_length_adequate",
+            "pass": desc_ok,
+            "value": heuristic_facts["description_length"],
+            "evidence": f"Description is {heuristic_facts['description_length']} chars (threshold: >=50).",
+        }
+    )
+
+    return verdicts
+
+
+def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) -> str:
+    """Combine deterministic and model-extracted facts into one prompt block."""
+    payload = {
+        "heuristic_facts": heuristic_facts,
+        "observable_facts": observable_facts,
+    }
+    return json.dumps(payload, indent=2)
+
+
+def render_report(
+    results: list[dict],
+    weighted_total: float,
+    overall: float,
+    report: dspy.Prediction,
+    code_verdicts: list[dict] | None = None,
+) -> str:
+    """Render the final evaluation report as markdown text."""
+    lines = []
+    lines.append("=" * 70)
+    lines.append("  TERRAFORM STYLE GUIDE EVALUATION REPORT")
+    lines.append("=" * 70)
+    lines.append("")
+
+    if code_verdicts:
+        lines.append("## Code-Based Verdicts")
+        lines.append("")
+        passed = sum(1 for v in code_verdicts if v["pass"])
+        lines.append(f"  {passed}/{len(code_verdicts)} checks passed")
+        lines.append("")
+        for v in code_verdicts:
+            marker = "✅ PASS" if v["pass"] else "❌ FAIL"
+            lines.append(f"  {marker}  {v['check']}: {v['evidence']}")
+        lines.append("")
+
+    lines.append("## Executive Summary")
+    lines.append("")
+    lines.append(report.executive_summary)
+    lines.append("")
+    lines.append("## Dimension Scores")
+    lines.append("")
+    lines.append(f"{'Dimension':<30} {'Score':>5}  {'Weighted':>8}  {'Scope':<16} {'Confidence'}")
+    lines.append("-" * 90)
+    for result in sorted(results, key=lambda item: item["score"]):
+        bar = "█" * result["score"] + "░" * (5 - result["score"])
+        lines.append(
+            f"{result['dimension']:<30} {bar} {result['score']}/5  "
+            f"({result['weighted_score']:.3f})  [{result['scope']:<13}]  {result['confidence']}"
+        )
+    lines.append("-" * 90)
+    lines.append(f"{'OVERALL':<30}       {weighted_total:.2f}/5.00 = {overall:.1%}")
+    lines.append("")
+    lines.append("## Strengths")
+    lines.append("")
+    for strength in report.strengths:
+        lines.append(f"  ✓ {strength}")
+    lines.append("")
+    lines.append("## Top Recommendations (Prioritized)")
+    lines.append("")
+    for index, recommendation in enumerate(report.top_recommendations, start=1):
+        lines.append(f"  {index}. {recommendation}")
+    lines.append("")
+    lines.append("## Per-Dimension Details")
+    lines.append("")
+    for result in results:
+        lines.append(f"### {result['dimension']} — {result['score']}/5 ({result['confidence']} confidence)")
+        lines.append(f"  Evidence: {result['evidence']}")
+        if result["suggestions"]:
+            lines.append("  Suggestions:")
+            for suggestion in result["suggestions"]:
+                lines.append(f"    → {suggestion}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Evaluation pipeline
+# ---------------------------------------------------------------------------
+
+
+def run_evaluation(skill_path: str) -> str:
+    """Run the Terraform Style Guide evaluation pipeline and return a markdown report."""
     skill_file = Path(skill_path)
     skill_dir = skill_file.parent
 
-    # Read SKILL.md
     skill_content = skill_file.read_text()
-
-    # Read references
     refs_content = load_references(skill_dir)
     full_content = skill_content + refs_content
+
+    heuristic_facts = build_heuristic_facts(skill_content, refs_content, skill_dir)
+
+    # Code-based verdicts — deterministic pass/fail checks that bypass the LLM
+    code_verdicts = compute_code_verdicts(heuristic_facts)
 
     print(f"Evaluating: {skill_path}")
     print(f"SKILL.md: {len(skill_content)} chars, ~{len(skill_content) // 4} tokens")
     if refs_content:
         print(f"References: {len(refs_content)} chars, ~{len(refs_content) // 4} tokens")
         print(f"Full package: {len(full_content)} chars, ~{len(full_content) // 4} tokens")
+    print(f"Heuristic facts: {json.dumps(heuristic_facts, indent=2)}")
     print("=" * 70)
 
-    evaluate = dspy.Predict(EvaluateDimension)
-    synthesize = dspy.Predict(SynthesizeReport)
+    extract_facts = dspy.ChainOfThought(ExtractObservableFacts)
+    evaluate = dspy.ChainOfThought(EvaluateDimension)
+    reconcile = dspy.ChainOfThought(ReconcileDimension)
+    synthesize = dspy.ChainOfThought(SynthesizeReport)
 
-    # Evaluate each dimension with appropriate content scope
+    # Extract observable facts for both scopes
+    print("\nExtracting observable facts (SKILL.md only)...")
+    observable_skill_facts = extract_facts(
+        skill_content=skill_content,
+        heuristic_facts=json.dumps(heuristic_facts, indent=2),
+    ).observable_facts
+
+    print("Extracting observable facts (full package)...")
+    observable_full_facts = extract_facts(
+        skill_content=full_content,
+        heuristic_facts=json.dumps(heuristic_facts, indent=2),
+    ).observable_facts
+
+    # Evaluate each dimension with dual reviewers + reconciliation
     results = []
     weighted_total = 0.0
 
@@ -213,17 +525,54 @@ def run_evaluation(skill_path: str) -> None:
         if dim_name in SKILL_ONLY_DIMS:
             content = skill_content
             scope = "SKILL.md only"
+            facts = format_observable_facts(heuristic_facts, observable_skill_facts)
         else:
             content = full_content
             scope = "full package"
+            facts = format_observable_facts(heuristic_facts, observable_full_facts)
 
         print(f"\n  Evaluating: {dim_name} (weight={dim_cfg['weight']}, {scope})...")
-        pred = evaluate(
+
+        reviewer_a = evaluate(
             skill_content=content,
             dimension=dim_name,
             criteria=dim_cfg["criteria"],
+            reviewer_stance="strict rubric auditor: reward only explicit evidence and score conservatively",
+            observable_facts=facts,
         )
-        score = int(pred.score)
+        reviewer_b = evaluate(
+            skill_content=content,
+            dimension=dim_name,
+            criteria=dim_cfg["criteria"],
+            reviewer_stance=(
+                "pragmatic operator: value usability and practical completeness but stay grounded in evidence"
+            ),
+            observable_facts=facts,
+        )
+
+        reconciliation = reconcile(
+            dimension=dim_name,
+            criteria=dim_cfg["criteria"],
+            observable_facts=facts,
+            reviewer_a=json.dumps(
+                {
+                    "score": normalize_score(reviewer_a.score),
+                    "evidence": reviewer_a.evidence,
+                    "suggestions": reviewer_a.suggestions,
+                },
+                indent=2,
+            ),
+            reviewer_b=json.dumps(
+                {
+                    "score": normalize_score(reviewer_b.score),
+                    "evidence": reviewer_b.evidence,
+                    "suggestions": reviewer_b.suggestions,
+                },
+                indent=2,
+            ),
+        )
+
+        score = normalize_score(reconciliation.final_score)
         weighted_total += score * dim_cfg["weight"]
 
         result = {
@@ -232,22 +581,31 @@ def run_evaluation(skill_path: str) -> None:
             "weight": dim_cfg["weight"],
             "weighted_score": round(score * dim_cfg["weight"], 3),
             "scope": scope,
-            "evidence": pred.evidence,
-            "suggestions": pred.suggestions,
+            "confidence": reconciliation.confidence,
+            "evidence": reconciliation.evidence,
+            "suggestions": reconciliation.suggestions,
+            "reviewers": {
+                "strict": {
+                    "score": normalize_score(reviewer_a.score),
+                    "evidence": reviewer_a.evidence,
+                },
+                "pragmatic": {
+                    "score": normalize_score(reviewer_b.score),
+                    "evidence": reviewer_b.evidence,
+                },
+            },
         }
         results.append(result)
 
         bar = "█" * score + "░" * (5 - score)
-        print(f"    Score: {bar} {score}/5")
-        print(f"    Evidence: {pred.evidence}")
-        if pred.suggestions:
-            for s in pred.suggestions:
-                print(f"    → {s}")
+        print(f"    Strict:    {normalize_score(reviewer_a.score)}/5")
+        print(f"    Pragmatic: {normalize_score(reviewer_b.score)}/5")
+        print(f"    Final:     {bar} {score}/5 ({reconciliation.confidence} confidence)")
 
-    overall = round(weighted_total / 5, 3)  # normalize to 0-1
-    print("\n" + "=" * 70)
+    overall = round(weighted_total / 5, 3)
+    print(f"\n{'=' * 70}")
     print(f"  OVERALL WEIGHTED SCORE: {overall:.1%} ({weighted_total:.2f}/5.00)")
-    print("=" * 70)
+    print(f"{'=' * 70}")
 
     # Synthesize final report
     print("\nSynthesizing improvement report...")
@@ -257,50 +615,18 @@ def run_evaluation(skill_path: str) -> None:
         overall_score=overall,
     )
 
-    print("\n" + "=" * 70)
-    print("  EVALUATION REPORT")
-    print("=" * 70)
-
-    print(f"\n## Executive Summary\n\n{report.executive_summary}")
-
-    print("\n## Dimension Scores\n")
-    print(f"{'Dimension':<30} {'Score':>5}  {'Weighted':>8}  {'Scope'}")
-    print("-" * 70)
-    for r in sorted(results, key=lambda x: x["score"]):
-        bar = "█" * r["score"] + "░" * (5 - r["score"])
-        print(f"{r['dimension']:<30} {bar} {r['score']}/5  ({r['weighted_score']:.3f})  [{r['scope']}]")
-    print("-" * 70)
-    print(f"{'OVERALL':<30}       {weighted_total:.2f}/5.00 = {overall:.1%}")
-
-    print("\n## Strengths\n")
-    for s in report.strengths:
-        print(f"  ✓ {s}")
-
-    print("\n## Top Recommendations (Prioritised)\n")
-    for i, rec in enumerate(report.top_recommendations, 1):
-        print(f"  {i}. {rec}")
-
-    print("\n## Per-Dimension Details\n")
-    for r in results:
-        print(f"### {r['dimension']} — {r['score']}/5")
-        print(f"  Evidence: {r['evidence']}")
-        if r["suggestions"]:
-            print("  Suggestions:")
-            for s in r["suggestions"]:
-                print(f"    → {s}")
-        print()
+    return render_report(results, weighted_total, overall, report, code_verdicts)
 
 
 if __name__ == "__main__":
-    # Configure DSPy with Azure OpenAI
     lm = dspy.LM(
         model=f"azure/{os.environ['AZURE_OPENAI_DEPLOYMENT']}",
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
         api_base=os.environ["AZURE_OPENAI_ENDPOINT"],
         api_version="2025-01-01-preview",
-        temperature=1.0,
+        temperature=0.0,
         max_tokens=16000,
     )
     dspy.configure(lm=lm)
 
-    run_evaluation("../terraform-style-guide/SKILL.md")
+    print(run_evaluation("../terraform-style-guide/SKILL.md"))

@@ -1,0 +1,16 @@
+id: edge-case-001
+name: Edge case - minimal input
+description: Test with minimal input to verify graceful handling
+tags:
+- edge-case
+inputs:
+  prompt: help
+expected:
+  outcomes:
+  - type: task_completed
+graders:
+- type: code
+  name: graceful_response
+  config:
+    assertions:
+    - len(output) > 0

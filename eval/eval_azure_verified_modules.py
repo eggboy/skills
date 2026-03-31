@@ -64,8 +64,8 @@ class EvaluateDimension(dspy.Signature):
     criteria: str = dspy.InputField(desc="Detailed rubric for this dimension (1-5 scale)")
     reviewer_stance: str = dspy.InputField(desc="Reviewer stance such as strict or pragmatic")
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
+    evidence: str = dspy.OutputField(desc="Detailed critique grounded in the provided content before scoring")
     score: int = dspy.OutputField(desc="Integer score from 1 to 5")
-    evidence: str = dspy.OutputField(desc="1-2 sentences of evidence grounded in the provided content")
     suggestions: list[str] = dspy.OutputField(desc="Concrete improvement suggestions; empty if score >= 4")
 
 
@@ -82,8 +82,8 @@ class ReconcileDimension(dspy.Signature):
     observable_facts: str = dspy.InputField(desc="Grounded fact bullets and heuristic observations")
     reviewer_a: str = dspy.InputField(desc="JSON for reviewer A result")
     reviewer_b: str = dspy.InputField(desc="JSON for reviewer B result")
-    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     evidence: str = dspy.OutputField(desc="Best supported evidence for the final score")
+    final_score: int = dspy.OutputField(desc="Final integer score from 1 to 5")
     suggestions: list[str] = dspy.OutputField(desc="Merged, deduplicated suggestions")
     confidence: str = dspy.OutputField(desc="high, medium, or low")
 
@@ -307,6 +307,90 @@ def normalize_score(score: int) -> int:
     return max(1, min(5, int(score)))
 
 
+def compute_code_verdicts(heuristic_facts: dict) -> list[dict]:
+    """Produce pass/fail verdicts for criteria checkable by code alone."""
+    verdicts = []
+
+    verdicts.append(
+        {
+            "check": "skill_under_500_lines",
+            "pass": heuristic_facts["skill_lines"] < 500,
+            "value": heuristic_facts["skill_lines"],
+            "evidence": f"SKILL.md is {heuristic_facts['skill_lines']} lines (threshold: <500).",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_negative_triggers",
+            "pass": heuristic_facts["has_negative_triggers"],
+            "value": heuristic_facts["has_negative_triggers"],
+            "evidence": "Negative triggers found."
+            if heuristic_facts["has_negative_triggers"]
+            else "No negative triggers found.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_bad_good_examples",
+            "pass": heuristic_facts["has_bad_good_examples"],
+            "value": heuristic_facts["has_bad_good_examples"],
+            "evidence": "Bad/good HCL examples found."
+            if heuristic_facts["has_bad_good_examples"]
+            else "No bad/good HCL comparison examples.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_reference_table",
+            "pass": heuristic_facts["has_reference_table"],
+            "value": heuristic_facts["has_reference_table"],
+            "evidence": "Reference routing table present."
+            if heuristic_facts["has_reference_table"]
+            else "No reference routing table in SKILL.md.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_vnet_workflow",
+            "pass": heuristic_facts["has_vnet_workflow"],
+            "value": heuristic_facts["has_vnet_workflow"],
+            "evidence": "VNet workflow with doc tools present."
+            if heuristic_facts["has_vnet_workflow"]
+            else "VNet workflow missing microsoft_docs_search/fetch steps.",
+        }
+    )
+    verdicts.append(
+        {
+            "check": "has_moved_block_example",
+            "pass": heuristic_facts["has_moved_block_example"],
+            "value": heuristic_facts["has_moved_block_example"],
+            "evidence": "moved {} block example present."
+            if heuristic_facts["has_moved_block_example"]
+            else "No moved block example for breaking change guidance.",
+        }
+    )
+    tffr_ok = heuristic_facts["has_tffr_codes"] >= 3
+    verdicts.append(
+        {
+            "check": "has_tffr_codes_>=3",
+            "pass": tffr_ok,
+            "value": heuristic_facts["has_tffr_codes"],
+            "evidence": f"{heuristic_facts['has_tffr_codes']} TFFR codes found (threshold: >=3).",
+        }
+    )
+    tfnfr_ok = heuristic_facts["has_tfnfr_codes"] >= 5
+    verdicts.append(
+        {
+            "check": "has_tfnfr_codes_>=5",
+            "pass": tfnfr_ok,
+            "value": heuristic_facts["has_tfnfr_codes"],
+            "evidence": f"{heuristic_facts['has_tfnfr_codes']} TFNFR codes found (threshold: >=5).",
+        }
+    )
+
+    return verdicts
+
+
 def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) -> str:
     """Combine deterministic and model-extracted facts into one prompt block."""
     payload = {
@@ -316,11 +400,29 @@ def format_observable_facts(heuristic_facts: dict, observable_facts: list[str]) 
     return json.dumps(payload, indent=2)
 
 
-def render_report(results: list[dict], weighted_total: float, overall: float, report: dspy.Prediction) -> str:
+def render_report(
+    results: list[dict],
+    weighted_total: float,
+    overall: float,
+    report: dspy.Prediction,
+    code_verdicts: list[dict] | None = None,
+) -> str:
     """Render the final evaluation report as markdown text."""
     lines = []
     lines.append("Evaluating complete")
     lines.append("")
+
+    if code_verdicts:
+        lines.append("## Code-Based Verdicts")
+        lines.append("")
+        passed = sum(1 for v in code_verdicts if v["pass"])
+        lines.append(f"  {passed}/{len(code_verdicts)} checks passed")
+        lines.append("")
+        for v in code_verdicts:
+            marker = "✅ PASS" if v["pass"] else "❌ FAIL"
+            lines.append(f"  {marker}  {v['check']}: {v['evidence']}")
+        lines.append("")
+
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(report.executive_summary)
@@ -372,6 +474,9 @@ def run_evaluation(skill_path: str) -> str:
     full_content = skill_content + refs_content
 
     heuristic_facts = build_heuristic_facts(skill_content, refs_content, skill_dir)
+
+    # Code-based verdicts — deterministic pass/fail checks that bypass the LLM
+    code_verdicts = compute_code_verdicts(heuristic_facts)
 
     extract_facts = dspy.ChainOfThought(ExtractObservableFacts)
     evaluate = dspy.ChainOfThought(EvaluateDimension)
@@ -473,7 +578,7 @@ def run_evaluation(skill_path: str) -> str:
         overall_score=overall,
     )
 
-    return render_report(results, weighted_total, overall, report)
+    return render_report(results, weighted_total, overall, report, code_verdicts)
 
 
 if __name__ == "__main__":
@@ -482,7 +587,7 @@ if __name__ == "__main__":
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
         api_base=os.environ["AZURE_OPENAI_ENDPOINT"],
         api_version="2025-01-01-preview",
-        temperature=1.0,
+        temperature=0.0,
         max_tokens=16000,
     )
     dspy.configure(lm=lm)

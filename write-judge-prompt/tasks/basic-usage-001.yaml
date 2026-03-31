@@ -1,0 +1,18 @@
+id: basic-usage-001
+name: Basic write-judge-prompt usage
+description: Test basic write-judge-prompt functionality
+tags:
+- basic
+- happy-path
+inputs:
+  prompt: Help me with write-judge-prompt
+expected:
+  outcomes:
+  - type: task_completed
+graders:
+- type: code
+  name: output_check
+  config:
+    assertions:
+    - len(output) > 10
+    - len(output.split()) > 3

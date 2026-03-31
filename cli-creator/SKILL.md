@@ -1,15 +1,6 @@
 ---
 name: cli-creator
-description: |
-  Create command-line interface (CLI) tools following clig.dev best practices.
-  USE FOR: building CLI apps, command-line tools, terminal utilities, improving
-  existing CLI code, argument parsing, help text, error handling, output formatting,
-  progress bars, colors, stdin/stdout, signals/Ctrl+C handling, configuration,
-  environment variables. Covers Python (Click, Typer, argparse), Node.js
-  (Commander, yargs), Go (Cobra), Rust (Clap), Bash (getopts). Includes starter
-  templates and language-specific references.
-  DO NOT USE FOR: GUI applications, TUI frameworks (textual, bubbletea, tui-rs),
-  long-running daemons/services, web servers, or desktop apps.
+description: Create command-line interface (CLI) tools following clig.dev best practices. Covers argument parsing, help text, error handling, output formatting, signals, and configuration. Supports Python (Click, Typer), Node.js (Commander), Go (Cobra), Rust (Clap), and Bash. Includes starter templates. DO NOT use for web applications, web servers, GUI apps, or long-running services.
 ---
 
 # CLI Creator

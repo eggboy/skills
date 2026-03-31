@@ -1,6 +1,6 @@
 ---
 name: azure-cost-analysis
-description: Analyze Azure service costs using the Microsoft.CostManagement REST API via `az rest`. Use when investigating Azure spending, querying cost breakdowns by resource, meter, or service, identifying cost anomalies, or providing cost reduction recommendations. Covers query construction, valid dimensions/filters, daily/monthly granularity, and common pitfalls. Triggers on: Azure cost, Azure spending, Azure billing, cost analysis, cost breakdown, cost optimization, expensive resource, cost management query.
+description: Analyze Azure service costs using the Microsoft.CostManagement REST API via az rest. Use when investigating Azure spending, querying cost breakdowns by resource, meter, or service, identifying cost anomalies, or providing cost reduction recommendations. Covers query construction, valid dimensions and filters, daily and monthly granularity, and common pitfalls. Triggers on Azure cost, Azure spending, Azure billing, cost analysis, cost breakdown, cost optimization, expensive resource, cost management query.
 ---
 
 # Azure Cost Analysis via Cost Management REST API

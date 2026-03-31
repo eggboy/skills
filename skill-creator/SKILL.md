@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: Guide for creating effective Agent Skills following the agentskills.io specification. Use when users want to create a new skill or update an existing skill that extends AI agent capabilities with specialized knowledge, workflows, or tool integrations. Applicable to GitHub Copilot, Claude, and other AI assistants.
+description: Create and update Agent Skills following the agentskills.io specification. Use when building reusable procedural knowledge, workflows, or tool integrations that extend AI agent capabilities. Applicable to GitHub Copilot, Claude, and other AI assistants. DO NOT use when the task can be accomplished with a simple prompt or when the user is not creating reusable skill packages.
 ---
 
 # Skill Creator
@@ -84,7 +84,7 @@ Do not include auxiliary files (README, CHANGELOG, installation guides, etc.). O
 
 Skills use a three-level loading system to manage context efficiently:
 
-1. **Metadata (name + description)** - Always in context (~100 tokens)
+1. **Metadata (name + description)** - Loaded automatically (~100 tokens)
 2. **SKILL.md body** - When skill triggers (<5000 tokens recommended)
 3. **Bundled resources** - As needed by the agent (Unlimited because scripts can be executed without reading into context window)
 
@@ -113,6 +113,30 @@ The agent loads reference files only when needed. This same pattern applies to d
 
 - Keep references one level deep from SKILL.md—all reference files should link directly from SKILL.md
 - For reference files longer than 100 lines, include a table of contents at the top
+
+### Skill Quality Validation
+
+Run these checks before finalizing any skill to ensure optimal agent performance.
+
+#### Anti-Pattern Scan
+
+Scan SKILL.md for patterns that degrade agent performance:
+
+- **Conflicting procedure paths**: Flag phrases like "but alternatively…", "or you could…", "another option is…" that create ambiguous execution paths. Pick one recommended approach and move alternatives to a reference file if needed.
+- **Duplicate step sequences**: Identify repeated instruction blocks. Deduplicate by extracting shared steps into a single section and referencing it.
+- **Excessive constraint keywords**: Count occurrences of "must not", "never", "always", "do not", "required" in the body. More than 5 triggers a warning—over-constraining narrows the agent's ability to adapt. Rewrite as positive guidance where possible (e.g., "prefer X" instead of "never use Y").
+
+#### Procedural Language Check
+
+Verify the description uses procedural language—action verbs ("deploy", "configure", "create", "analyze") and procedure keywords ("step", "then", "workflow", "process", "sequence"). Procedural content correlates with a +18.8pp improvement in skill activation rates across models.
+
+#### Description Density Validation
+
+Validate the `description` field for cross-model effectiveness:
+
+- **Word count**: ≤60 words. Shorter descriptions trigger more reliably across different AI models.
+- **First sentence**: Must lead with an action verb (e.g., "Create…", "Deploy…", "Analyze…").
+- **No unquoted colons**: Reject any `description` value containing `:` unless the entire value is wrapped in double quotes. Rewrite to remove colonsfirst; quoting is a last resort.
 
 ## Skill Creation Process
 
@@ -176,8 +200,12 @@ Write the YAML frontmatter with required and optional fields:
 
 **Required fields:**
 - `name`: The skill name (1-64 characters, lowercase alphanumeric and hyphens only, must match parent directory name)
-- `description`: Primary triggering mechanism (1-1024 characters). Include what the skill does AND when to use it—this is the only field read before the body loads.
-  - Example: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when working with .docx files for: creating, modifying, tracked changes, comments, or any document tasks"
+- `description`: Primary triggering mechanism (1-1024 characters). Include what the skill does AND when to use it. This is the only field read before the body loads.
+  - **No colons (`:`)** — colons break YAML parsing. Rewrite to eliminate them (e.g., "Use when" instead of "Use for: when"). If a colon is unavoidable, wrap the entire value in double quotes.
+  - Lead the first sentence with an action verb (e.g., "Create…", "Deploy…", "Analyze…")
+  - Keep to ≤60 words for cross-model effectiveness — shorter descriptions trigger more reliably across different AI models
+  - Use procedural language (action verbs, procedure keywords like "workflow", "configure", "step") — this correlates with stronger skill activation
+  - Example: "Create and edit .docx files with tracked changes, comments, formatting preservation, and text extraction. Use when working with Word documents for creation, modification, or analysis tasks."
 
 **Optional fields:**
 - `license`: License name or reference to a bundled license file (e.g., "Apache-2.0" or "Proprietary. LICENSE.txt has complete terms")

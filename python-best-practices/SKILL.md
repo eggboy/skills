@@ -1,14 +1,6 @@
 ---
 name: python-best-practices
-description: >
-  Python coding best practices, conventions, and architectural patterns for production-ready applications.
-  Use when writing, reviewing, or refactoring Python code to apply modern patterns and idiomatic style.
-  Covers: general Python conventions (PEP 8, type hints, testing with pytest/hypothesis/Faker),
-  dataframe mindset (vectorization, columnar operations, method chaining across Pandas/Polars/DuckDB/Spark),
-  and Python data model (dunder methods, iterators, context managers, descriptors, properties).
-  Applicable to Python 3.12+ projects using pyproject.toml and Ruff for linting.
-  USE FOR: Python style, PEP 8, type hints, testing, dataframes, Python data model.
-  DO NOT USE FOR: FastAPI applications (use fastapi skill).
+description: Apply modern Python best practices, conventions, and architectural patterns to production-ready code. Use when writing, reviewing, or refactoring Python to follow PEP 8, type hints, pytest and hypothesis testing, dataframe workflows (Pandas, Polars, DuckDB, Spark), and Python data model patterns (dunder methods, iterators, context managers, descriptors). For Python 3.12+ with pyproject.toml and Ruff. DO NOT use for FastAPI (use fastapi skill).
 ---
 
 # Python Best Practices
@@ -20,11 +12,13 @@ Load the relevant reference when the task involves these domains:
 - **FastAPI applications**: Defer to the `fastapi` skill for project setup, endpoints, error handling, and Pydantic integration
 - **Dataframe / data engineering**: Read [references/dataframe.md](references/dataframe.md) — columnar thinking, vectorization over row loops, method chaining, Pandas → Polars → DuckDB → Spark
 - **Python data model**: Read [references/datamodel.md](references/datamodel.md) — `__iter__`/`__next__`, `__enter__`/`__exit__`, descriptors, `@property`, native-feeling APIs
+- **Dependency & supply chain security**: Read [references/security.md](references/security.md) — CVE checking, supply chain attack prevention, dependency auditing, emergency response
 
 ## Code Style
 
 - Python 3.12+ with pyproject.toml configuration
 - Follow PEP 8; use Ruff for linting and formatting
+- After writing or modifying Python files, run Ruff to lint, auto-fix, and format: `ruff check --fix . && ruff format .`
 - 4 spaces indentation, 120-char line limit
 - Type hints required for all public APIs using built-in generics (`list[str]`, `dict[str, int]`), not `typing.List`/`typing.Dict`
 - Provide PEP 257 docstrings for all public functions and classes
@@ -69,6 +63,12 @@ project-name/
 - Configure all tools (ruff, pytest, mypy) in `pyproject.toml`
 - Prefer `uv` for dependency management; fall back to `pip`
 
+## Configuration & Environment Variables
+
+- Call `load_dotenv()` once at the application entry point (`main.py`), never inside library code
+- Add `.env` to `.gitignore`; use `os.environ["KEY"]` to fail fast on missing required values
+- For typed configuration, prefer `pydantic-settings` (`BaseSettings` with `env_file`)
+
 ## Testing
 
 - Use pytest with `conftest.py` for shared fixtures
@@ -94,6 +94,10 @@ def test_calculate_total(quantity, expected):
     else:
         assert calculate_total(price=10, quantity=quantity) == expected
 ```
+
+## Dependency & Supply Chain Security
+
+Run `pip-audit` before adding or upgrading any dependency. Pin exact versions in production. Treat every third-party package as an attack surface — see [references/security.md](references/security.md) for CVE checking workflow, supply chain attack patterns, CI automation, and emergency response.
 
 ## Error Handling
 

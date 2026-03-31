@@ -1,6 +1,6 @@
 ---
 name: azure-verified-modules
-description: Azure Verified Modules (AVM) requirements and best practices for developing or consuming certified Azure Terraform modules. Use when creating, reviewing, or consuming AVM modules, or when configuring VNet injection, subnet delegation, or NSG rules for any Azure service in Terraform. DO NOT use for generic Terraform style guidance (use terraform-style-guide), non-AVM community modules, or non-Azure providers.
+description: Develop, review, and consume certified Azure Verified Modules (AVM) for Terraform following AVM requirements and best practices. Use when creating AVM-compliant modules, or configuring VNet injection, subnet delegation, or NSG rules in Terraform. DO NOT use for generic Terraform style guidance (use terraform-style-guide), non-AVM community modules, or non-Azure providers.
 ---
 
 # Azure Verified Modules (AVM) — Terraform
@@ -32,7 +32,7 @@ Core workflow and checklists for AVM-compliant Terraform modules.
 ### Code Style (MUST)
 
 - Lower `snake_casing` everywhere
-- `for_each` with `map()` or `set()` using static keys — never lists
+- `for_each` with `map()` or `set()` using static keys only
 - `ignore_changes` **not quoted** (e.g., `[tags]` not `["tags"]`)
 - Dynamic blocks for conditional nested objects
 - Block ordering: meta-args top → arguments alphabetical → meta-args bottom
@@ -48,7 +48,7 @@ Core workflow and checklists for AVM-compliant Terraform modules.
 
 ### Outputs (MUST)
 
-- Discrete computed attributes only — never output entire resource objects
+- Output only discrete computed attributes (not entire resource objects)
 - `sensitive = true` for confidential data
 - Deprecated → move to `deprecated_outputs.tf`
 
@@ -62,13 +62,9 @@ Core workflow and checklists for AVM-compliant Terraform modules.
 
 ## VNet Injection — Mandatory Verification
 
-**MUST** verify exact networking requirements from official docs before writing any VNet injection, subnet delegation, or NSG config. Requirements differ **across tiers/SKUs within the same service**.
+Verify exact networking requirements from official docs before writing any VNet injection, subnet delegation, or NSG config. Requirements differ **across tiers/SKUs within the same service** — wrong config leads to cryptic failures (`MethodNotAllowedInPricingTier`), subnet delegation conflicts, or missing NSG rules.
 
-1. **Search** — `microsoft_docs_search` with **specific SKU/tier** (e.g., "API Management Premium v2 VNet injection")
-2. **Fetch** — `microsoft_docs_fetch` → extract delegation, min CIDR, NSG rules, tier differences, DNS
-3. **Cross-check** — verify every Terraform parameter matches the docs
-
-**Why:** Wrong config → cryptic failures (`MethodNotAllowedInPricingTier`), subnet delegation conflicts, missing NSG rules. See [references/vnet-guide.md](references/vnet-guide.md) for tier-specific HCL examples and the full checklist.
+Follow the step-by-step verification workflow and tier-specific HCL examples in [references/vnet-guide.md](references/vnet-guide.md).
 
 ---
 
@@ -76,12 +72,12 @@ Core workflow and checklists for AVM-compliant Terraform modules.
 
 Before submitting, verify:
 
-- [ ] Registry-pinned sources, correct provider versions, `.terraform-docs.yml`, CODEOWNERS
-- [ ] snake_casing, block ordering, dynamic blocks, static `for_each` keys
-- [ ] Variables/outputs follow AVM conventions (ordering, typing, sensitivity, deprecation)
-- [ ] VNet config verified from official docs for exact tier/SKU ([full checklist](references/vnet-guide.md#checklist))
-- [ ] New resources gated by feature toggle; breaking changes reviewed per TFNFR35
-- [ ] Tests pass: terraform validate/fmt/test, terrafmt, Checkov, tflint
+- **Sources & providers** — Registry-pinned sources, correct provider versions, `.terraform-docs.yml`, CODEOWNERS
+- **Code style** — snake_casing, block ordering, dynamic blocks, static `for_each` keys
+- **Variables/outputs** — AVM conventions (ordering, typing, sensitivity, deprecation)
+- **VNet config** — Verified from official docs for exact tier/SKU ([full checklist](references/vnet-guide.md#checklist))
+- **Breaking changes** — New resources gated by feature toggle; changes reviewed per TFNFR35
+- **Tests** — terraform validate/fmt/test, terrafmt, Checkov, tflint
 
 For full requirement details, see [references/avm-requirements.md](references/avm-requirements.md).
 For bad-vs-good HCL examples, see [references/examples.md](references/examples.md).
