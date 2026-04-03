@@ -65,9 +65,25 @@ project-name/
 
 ## Configuration & Environment Variables
 
-- Call `load_dotenv()` once at the application entry point (`main.py`), never inside library code
-- Add `.env` to `.gitignore`; use `os.environ["KEY"]` to fail fast on missing required values
+Always use `python-dotenv` for environment variable management. Include it in project dependencies and call `load_dotenv()` at the application entry point before any `os.environ` access.
+
+- Add `python-dotenv` to `[project.dependencies]` in `pyproject.toml`
+- Call `load_dotenv()` once at the top of the entry point (`main.py`), never inside library code
+- Add `.env` to `.gitignore`; commit a `.env.example` with placeholder values for documentation
+- Use `os.environ["KEY"]` (not `os.getenv`) to fail fast on missing required values
 - For typed configuration, prefer `pydantic-settings` (`BaseSettings` with `env_file`)
+
+```python
+# main.py — entry point
+from dotenv import load_dotenv
+
+load_dotenv()  # must precede any os.environ access
+
+import os
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+API_KEY = os.environ["API_KEY"]
+```
 
 ## Testing
 
