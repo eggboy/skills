@@ -8,7 +8,7 @@ description: |
   - Designing rubric-based or LLM-as-judge evaluation systems
   - Adding iterative improvement to agent outputs (code, reports, analysis)
   - Measuring and improving agent response quality
-  Do NOT use for: unit testing, code linting, static analysis, benchmarking
+  Do NOT use for unit testing, code linting, static analysis, benchmarking
   non-agent outputs, or simple pass/fail validation without iteration.
 ---
 

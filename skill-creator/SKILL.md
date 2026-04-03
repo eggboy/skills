@@ -23,7 +23,7 @@ Match the level of specificity to the task's fragility and variability:
 
 **Low freedom (specific scripts, few parameters)**: Use when operations are fragile and error-prone, consistency is critical, or a specific sequence must be followed.
 
-### Anatomy of a Skill
+## Skill Structure
 
 Every skill consists of a required SKILL.md file and optional bundled resources:
 
@@ -41,20 +41,20 @@ skill-name/
     └── assets/           - Files used in output (templates, icons, fonts, etc.)
 ```
 
-#### SKILL.md (required)
+### SKILL.md (required)
 
 Every SKILL.md consists of:
 
 - **Frontmatter** (YAML): Contains `name` and `description` fields (required), plus optional fields like `license`, `metadata`, `compatibility`, and `allowed-tools`. Only `name` and `description` are read by the AI agent to determine when the skill triggers, so be clear and comprehensive about what the skill is and when it should be used. The `compatibility` field is for noting environment requirements (target product, system packages, etc.) but most skills don't need it.
 - **Body** (Markdown): Instructions and guidance for using the skill. Only loaded AFTER the skill triggers (if at all).
 
-#### Bundled Resources (optional)
+### Bundled Resources (optional)
 
-##### Scripts (`scripts/`)
+#### Scripts (`scripts/`)
 
 Executable code (Python/Bash/etc.) for tasks that require deterministic reliability or are repeatedly rewritten. Can be executed without loading into context. Scripts may still need to be read for patching or environment-specific adjustments.
 
-**Python scripts**: Use PEP 723 inline script metadata so dependencies are declared in the script itself, then run with `uvx` for zero-install execution:
+**Python scripts**: Use PEP 723 inline script metadata so dependencies are declared in the script itself, then run with `uv run` for zero-install execution:
 
 ```python
 # /// script
@@ -63,34 +63,34 @@ Executable code (Python/Bash/etc.) for tasks that require deterministic reliabil
 # ///
 ```
 
-Run via `uvx run script.py` — no virtual environment or `pip install` needed.
+Run via `uv run script.py` — no virtual environment or `pip install` needed.
 
-##### References (`references/`)
+#### References (`references/`)
 
 Documentation loaded as needed into context (schemas, API docs, domain knowledge, policies).
 
 - Information should live in either SKILL.md or references, not both—prefer references for detailed content
 - If files are large (>10k words), include grep search patterns in SKILL.md
 
-##### Assets (`assets/`)
+#### Assets (`assets/`)
 
 Files used in the agent's output but not loaded into context (templates, images, icons, boilerplate, fonts).
 
-#### What to Not Include in a Skill
+### What to Not Include in a Skill
 
-Do not include auxiliary files (README, CHANGELOG, installation guides, etc.). Only include files the agent needs to do the job.
+Exclude auxiliary files (README, CHANGELOG, installation guides, etc.). Only include files the agent needs to do the job.
 
 ### Progressive Disclosure Design Principle
 
 Skills use a three-level loading system to manage context efficiently:
 
 1. **Metadata (name + description)** - Loaded automatically (~100 tokens)
-2. **SKILL.md body** - When skill triggers (<5000 tokens recommended)
+2. **SKILL.md body** - When skill triggers (~5000 tokens or roughly 400-500 lines of mixed content)
 3. **Bundled resources** - As needed by the agent (Unlimited because scripts can be executed without reading into context window)
 
 #### Progressive Disclosure Patterns
 
-Keep SKILL.md body to the essentials and under 500 lines to minimize context bloat. Split content into separate files when approaching this limit. When splitting out content into other files, it is very important to reference them from SKILL.md and describe clearly when to read them, to ensure the agent knows they exist and when to use them.
+Keep SKILL.md body to the essentials to minimize context bloat (~5000 tokens, roughly 400-500 lines of mixed content). Split content into separate files when approaching this limit. When splitting out content into other files, it is very important to reference them from SKILL.md and describe clearly when to read them, to ensure the agent knows they exist and when to use them.
 
 **Key principle:** When a skill supports multiple variations, frameworks, or options, keep only the core workflow and selection guidance in SKILL.md. Move variant-specific details (patterns, examples, configuration) into separate reference files.
 
@@ -103,8 +103,8 @@ Keep SKILL.md body to the essentials and under 500 lines to minimize context blo
 Extract text with pdfplumber: [code example]
 
 ## Advanced features
-- **Form filling**: See [FORMS.md](FORMS.md) for complete guide
-- **API reference**: See [REFERENCE.md](REFERENCE.md) for all methods
+- **Form filling**: See [references/FORMS.md](references/FORMS.md) for complete guide
+- **API reference**: See [references/REFERENCE.md](references/REFERENCE.md) for all methods
 ```
 
 The agent loads reference files only when needed. This same pattern applies to domain-specific splits (e.g., `references/finance.md`, `references/sales.md`) and conditional details (linking to advanced topics only when relevant).
@@ -114,30 +114,6 @@ The agent loads reference files only when needed. This same pattern applies to d
 - Keep references one level deep from SKILL.md—all reference files should link directly from SKILL.md
 - For reference files longer than 100 lines, include a table of contents at the top
 
-### Skill Quality Validation
-
-Run these checks before finalizing any skill to ensure optimal agent performance.
-
-#### Anti-Pattern Scan
-
-Scan SKILL.md for patterns that degrade agent performance:
-
-- **Conflicting procedure paths**: Flag phrases like "but alternatively…", "or you could…", "another option is…" that create ambiguous execution paths. Pick one recommended approach and move alternatives to a reference file if needed.
-- **Duplicate step sequences**: Identify repeated instruction blocks. Deduplicate by extracting shared steps into a single section and referencing it.
-- **Excessive constraint keywords**: Count occurrences of "must not", "never", "always", "do not", "required" in the body. More than 5 triggers a warning—over-constraining narrows the agent's ability to adapt. Rewrite as positive guidance where possible (e.g., "prefer X" instead of "never use Y").
-
-#### Procedural Language Check
-
-Verify the description uses procedural language—action verbs ("deploy", "configure", "create", "analyze") and procedure keywords ("step", "then", "workflow", "process", "sequence"). Procedural content correlates with a +18.8pp improvement in skill activation rates across models.
-
-#### Description Density Validation
-
-Validate the `description` field for cross-model effectiveness:
-
-- **Word count**: ≤60 words. Shorter descriptions trigger more reliably across different AI models.
-- **First sentence**: Must lead with an action verb (e.g., "Create…", "Deploy…", "Analyze…").
-- **No unquoted colons**: Reject any `description` value containing `:` unless the entire value is wrapped in double quotes. Rewrite to remove colonsfirst; quoting is a last resort.
-
 ## Skill Creation Process
 
 Skill creation involves these steps:
@@ -146,7 +122,8 @@ Skill creation involves these steps:
 2. Plan reusable skill contents (scripts, references, assets)
 3. Initialize the skill (create directory, SKILL.md, and placeholder resources)
 4. Edit the skill (implement resources and write SKILL.md)
-5. Iterate based on real usage
+5. Validate the skill (run quality checks)
+6. Iterate based on real usage
 
 Follow these steps in order, skipping only if there is a clear reason why they are not applicable.
 
@@ -174,14 +151,11 @@ Create the skill directory with a SKILL.md template and example `scripts/`, `ref
 
 When editing the (newly-generated or existing) skill, remember that the skill is being created for an AI agent to use. Include information that would be beneficial and non-obvious to the agent. Consider what procedural knowledge, domain-specific details, or reusable assets would help an AI agent execute these tasks more effectively.
 
-#### Learn Proven Design Patterns
+#### Design Pattern Tips
 
-Consult these helpful guides based on your skill's needs:
-
-- **Multi-step processes**: See references/workflows.md for sequential workflows and conditional logic
-- **Specific output formats or quality standards**: See references/output-patterns.md for template and example patterns
-
-These files contain established best practices for effective skill design.
+- For multi-step workflows, place a numbered overview near the top of SKILL.md so the agent sees the full process before starting individual steps.
+- For skills with branching paths (e.g., "new vs. existing"), use a decision routing section with clear "follow X below" pointers.
+- Match output template strictness to the task's fragility (see "Degrees of Freedom" above).
 
 #### Start with Reusable Skill Contents
 
@@ -192,7 +166,7 @@ Implement the resources identified in Step 2. This may require user input (e.g.,
 
 #### Update SKILL.md
 
-**Writing Guidelines:** Always use imperative/infinitive form.
+**Writing Guidelines:** Use imperative/infinitive form.
 
 ##### Frontmatter
 
@@ -203,22 +177,48 @@ Write the YAML frontmatter with required and optional fields:
 - `description`: Primary triggering mechanism (1-1024 characters). Include what the skill does AND when to use it. This is the only field read before the body loads.
   - **No colons (`:`)** — colons break YAML parsing. Rewrite to eliminate them (e.g., "Use when" instead of "Use for: when"). If a colon is unavoidable, wrap the entire value in double quotes.
   - Lead the first sentence with an action verb (e.g., "Create…", "Deploy…", "Analyze…")
-  - Keep to ≤60 words for cross-model effectiveness — shorter descriptions trigger more reliably across different AI models
+  - Include "DO NOT use for/when…" to disambiguate from similar skills — negative routing in descriptions helps models select the right skill, unlike in body instructions where positive framing is preferred
+  - Concise descriptions keep the metadata layer lightweight (~100 tokens per skill)
   - Use procedural language (action verbs, procedure keywords like "workflow", "configure", "step") — this correlates with stronger skill activation
-  - Example: "Create and edit .docx files with tracked changes, comments, formatting preservation, and text extraction. Use when working with Word documents for creation, modification, or analysis tasks."
+  - Example: "Create and edit .docx files with tracked changes, comments, formatting preservation, and text extraction. Use when working with Word documents for creation, modification, or analysis tasks. DO NOT use for plain text or PDF files."
 
 **Optional fields:**
 - `license`: License name or reference to a bundled license file (e.g., "Apache-2.0" or "Proprietary. LICENSE.txt has complete terms")
-- `compatibility`: Environment requirements (1-500 characters) - intended product, required system packages, network access needs, etc.
+- `compatibility`: Environment requirements (1-500 characters) - intended product, necessary system packages, network access needs, etc.
 - `metadata`: Arbitrary key-value mapping for additional metadata (e.g., author, version)
 - `allowed-tools`: Space-delimited list of pre-approved tools (experimental, support varies between agent implementations)
 
 ##### Body
 
-Write instructions for using the skill and its bundled resources.
+Write instructions the agent needs to execute the skill. Structure based on skill type:
 
+- **Workflow skills**: Numbered step overview → detailed steps with expected outputs → error handling notes
+- **Reference skills**: Quick start example → categorized reference sections → edge cases
+- **Tool skills**: Setup/prerequisites → usage patterns → troubleshooting
 
-### Step 5: Iterate
+Keep each section focused on one idea. Use code blocks for commands and examples, lists for options, and prose only for reasoning the agent needs. Reference bundled resources by relative path with a brief note on when to read them.
+
+### Step 5: Validate the Skill
+
+Run these checks before finalizing any skill to ensure optimal agent performance.
+
+#### Anti-Pattern Scan
+
+Scan SKILL.md for patterns that degrade agent performance:
+
+- **Conflicting procedure paths**: Flag phrases like "but alternatively…", "or you could…", "another option is…" that create ambiguous execution paths. Pick one recommended approach and move alternatives to a reference file if needed.
+- **Duplicate step sequences**: Identify repeated instruction blocks. Deduplicate by extracting shared steps into a single section and referencing it.
+- **Negative instruction review**: Scan for negative directives ("must not", "never", "do not") in the **body**. For each one, consider whether it can be rewritten as positive guidance—models follow affirmative instructions more reliably than negations. For example, "prefer X over Y" instead of "never use Y." Retain hard negations for safety constraints, compliance requirements, and correctness invariants where a soft preference would be inappropriate. Note: this applies only to body instructions, not to the `description` field — negative routing ("DO NOT use for…") in descriptions is encouraged for skill disambiguation.
+
+#### Procedural Language Check
+
+Verify the description uses procedural language—action verbs ("deploy", "configure", "create", "analyze") and procedure keywords ("step", "then", "workflow", "process", "sequence"). In our testing, procedural language in descriptions improved skill activation rates across models.
+
+#### Description Validation
+
+Validate the `description` field against the frontmatter guidelines in Step 4 — confirm it starts with an action verb, contains no unquoted colons, and is concise (~100 tokens or fewer).
+
+### Step 6: Iterate
 
 After testing the skill, users may request improvements. Often this happens right after using the skill, with fresh context of how the skill performed.
 
